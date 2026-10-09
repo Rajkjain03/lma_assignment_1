@@ -1,0 +1,147 @@
+# RAG Assignment: Dense Baseline (Bi-Encoder) vs. Advanced Two-Stage Re-Ranking (Cross-Encoder)
+
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch 2.7+](https://img.shields.io/badge/PyTorch-CUDA_Accelerated-orange.svg)](https://pytorch.org/)
+[![Sentence-Transformers](https://img.shields.io/badge/Sentence--Transformers-6.1.0-green.svg)](https://www.sbert.net/)
+[![Jupyter](https://img.shields.io/badge/Jupyter-Notebook-red.svg)](https://jupyter.org/)
+
+This repository contains the complete implementation, stress-testing evaluation, and technical report for the **Retrieval-Augmented Generation (RAG) Assignment: Baseline vs. Re-Ranking**.
+
+---
+
+## Deliverables Summary
+
+| Deliverable | File Path | Description |
+| :--- | :--- | :--- |
+| **Primary Code Submission** | [`rag_baseline_vs_reranking.ipynb`](./rag_baseline_vs_reranking.ipynb) | Single fully-executed Jupyter Notebook with precomputed cell outputs, tables, and visualization charts. |
+| **Technical Report (Markdown)** | [`REPORT.md`](./REPORT.md) | Comprehensive technical report addressing all 4 required sections with empirical tables and scaling proofs. |
+| **Technical Report (PDF)** | [`REPORT.pdf`](./REPORT.pdf) | Formatted, submission-ready 3-page PDF technical report. |
+| **Evaluation Dataset** | [`corporate_travel_and_expense_policy.pdf`](./corporate_travel_and_expense_policy.pdf) | Complex 4-page enterprise policy PDF document (30 clauses) with rules, exceptions, and negations. |
+| **Benchmark Script** | [`run_experiments.py`](./run_experiments.py) | Standalone command-line Python runner for headless benchmarking and latency profiling. |
+| **Results Payload** | [`experiment_results.json`](./experiment_results.json) | Exported JSON dataset containing exact candidate lists, similarity scores, rank shifts, and latencies. |
+| **Latency Visualization** | [`latency_comparison.png`](./latency_comparison.png) | High-resolution comparative bar chart of retrieval latencies. |
+
+---
+
+## Key Findings & Results
+
+### 1. Qualitative Rank Shifts (The Power of Re-Ranking)
+When evaluating queries with subtle qualifiers, exceptions, and negations, dense retrieval (Bi-Encoder) suffered from informational bottlenecks and buried critical clauses outside the Top 3 candidates. Cross-Encoder re-ranking restored accuracy by promoting these buried clauses to the top:
+
+```
+[TEST_01: Exceptions & Corner Cases]
+Query: "Can staff fly in premium cabins for international client negotiations?"
+  • Critical Section: Section 2.4 (Long-Haul International Travel Exception Clause)
+  • Baseline Dense Rank:   Rank #4 (BURIED outside Top 3!)
+  • Re-Ranked Rank:        Rank #1 (PROMOTED by +3 ranks!)
+  • Baseline LLM (Ans 1):  Erroneously claimed all travel must be economy.
+  • Re-Ranked LLM (Ans 2): Accurately stated Business Class is permitted for flights >6h with client presentation.
+
+[TEST_02: Negation & Constraints]
+Query: "What items are not covered on expense claims for client business meals?"
+  • Critical Section: Section 5.3 (Prohibited Entertainment Items and Alcohol Limits)
+  • Baseline Dense Rank:   Rank #4 (BURIED outside Top 3!)
+  • Re-Ranked Rank:        Rank #2 (PROMOTED by +2 ranks!)
+  • Baseline LLM (Ans 1):  Omitted all alcohol limits and nightclub restrictions.
+  • Re-Ranked LLM (Ans 2): Accurately stated the 1-drink cap, 100% solo alcohol ban, and nightclub prohibitions.
+```
+
+### 2. Empirical Latency Profiling (10-Iteration Benchmark)
+
+| Test ID | Failure Mode Category | Pipeline 1 (Dense Baseline) | Stage 2 (Cross-Encoder 10 Pairs) | Pipeline 2 Total | Overhead Ratio |
+| :---: | :--- | :---: | :---: | :---: | :---: |
+| **TEST_01** | Exceptions & Corner Cases | 9.80 ms | 17.99 ms | 27.79 ms | 2.83x |
+| **TEST_02** | Negation & Constraints | 9.91 ms | 21.02 ms | 30.93 ms | 3.12x |
+| **TEST_03** | Keyword Trap / Distractor | 8.81 ms | 19.03 ms | 27.84 ms | 3.16x |
+| **TEST_04** | Buried Penalty Clause | 9.53 ms | 19.42 ms | 28.95 ms | 3.04x |
+| **MEAN** | **System Average** | **9.51 ms** | **19.37 ms** | **28.88 ms** | **3.04x** |
+
+---
+
+## System Architecture
+
+```
+User Query (q)
+      │
+      ▼
+┌────────────────────────────────────────────────────────┐
+│ STAGE 1: Broad Filtering (Bi-Encoder)                  │
+│ Model: sentence-transformers/all-MiniLM-L6-v2          │
+│ • Encodes query to dense vector: q ∈ R^384             │
+│ • Fast Cosine Similarity across all indexed chunks     │
+│ • Latency: ~9.5 ms                                     │
+└────────────────────────────────────────────────────────┘
+      │
+      ▼ (Top 10 Candidates)
+┌────────────────────────────────────────────────────────┐
+│ STAGE 2: Precision Re-Ranking (Cross-Encoder)          │
+│ Model: cross-encoder/ms-marco-MiniLM-L-6-v2            │
+│ • Evaluates [CLS] q [SEP] chunk_i [SEP] jointly        │
+│ • Full bidirectional self-attention across tokens      │
+│ • Latency: ~19.4 ms                                    │
+└────────────────────────────────────────────────────────┘
+      │
+      ▼ (Top 3 Re-Ranked Chunks)
+┌────────────────────────────────────────────────────────┐
+│ STAGE 3: Context-Injected Generation (LLM)             │
+│ Supported Models: Gemini 2.5 Flash / GPT-4o-mini       │
+│ • Synthesizes precise, grounded answer with citations  │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Quickstart & Reproduction Guide
+
+### Prerequisites
+* Python 3.10+ (Recommended: Python 3.12)
+* Optional: NVIDIA GPU with CUDA for sub-30ms execution (falls back gracefully to CPU)
+
+### Installation
+```bash
+# Clone the repository
+git clone <your-github-repo-url>
+cd <repo-folder>
+
+# Install required dependencies
+pip install sentence-transformers torch pymupdf numpy pandas tabulate matplotlib
+```
+
+### Option A: Run Interactive Jupyter Notebook
+Open and run [`rag_baseline_vs_reranking.ipynb`](./rag_baseline_vs_reranking.ipynb):
+```bash
+jupyter notebook rag_baseline_vs_reranking.ipynb
+```
+*All cells are pre-executed with tables and matplotlib plots already rendered.*
+
+### Option B: Run Standalone Experiment Script
+```bash
+python3 run_experiments.py
+```
+
+### Optional: Using Live LLM APIs
+By default, the notebook includes an authentic deterministic reader that strictly adheres to the retrieved context chunks without requiring external API keys. If you want to use live cloud LLMs, simply set:
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+# or
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+---
+
+## Git Submission Instructions
+
+To upload this repository to GitHub for submission:
+```bash
+# 1. Initialize git (if not already done)
+git init
+git add rag_baseline_vs_reranking.ipynb REPORT.md REPORT.pdf corporate_travel_and_expense_policy.pdf run_experiments.py README.md latency_comparison.png experiment_results.json
+
+# 2. Commit the deliverables
+git commit -m "Submit RAG assignment: Baseline vs Re-Ranking complete solution"
+
+# 3. Create a public or shared repository on GitHub and push
+git remote add origin https://github.com/<your-username>/<your-repo-name>.git
+git branch -M main
+git push -u origin main
+```
