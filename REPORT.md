@@ -66,6 +66,8 @@ Below is the documented evidence of rank shifts for failure queries where baseli
 | **TEST_03** | **Keyword Trap / Distractor** | Section 4.4 (*Luxury Chauffeured Vehicles & Limousine Ban*) | Rank #2 | Rank #2 | Surfaced in Top 2 | Preserved in Top 2 |
 | **TEST_04** | **Buried Penalty Clause** | Section 8.5 (*Late Submission Forfeiture & Card Revocation*) | Rank #1 | Rank #1 | Top Ranked | Retained at Rank #1 |
 
+![Qualitative Rank Shifts Comparison](rank_shifts_comparison.png)
+
 ---
 
 ### Detailed Case Study 1: Exceptions & Corner Cases (TEST_01)
@@ -122,6 +124,8 @@ We recorded and tabulated runtimes across 10 warmed iterations on an NVIDIA GeFo
 | **TEST_03** | Keyword Trap / Distractor | 8.81 ms | 19.03 ms | 27.84 ms | **3.16x** |
 | **TEST_04** | Buried Penalty Clause | 9.53 ms | 19.42 ms | 28.95 ms | **3.04x** |
 | **AVERAGE** | **System Mean Latency** | **9.51 ms** | **19.37 ms** | **28.88 ms** | **3.04x** |
+
+![Comparative Latency Profiling](latency_comparison.png)
 
 ### Observations on Latency Trade-Off:
 1. **Dense Retrieval (Pipeline 1):** Takes an average of **9.51 ms**, consisting of query embedding generation (~8 ms on GPU) and dot product vector search (~0.5 ms).

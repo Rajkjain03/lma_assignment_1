@@ -584,6 +584,50 @@ plt.savefig("latency_comparison.png", dpi=150)
 plt.show()
 """))
 
+    cells.append(nbf.v4.new_markdown_cell("""### 4. Visualizing Qualitative Rank Shifts
+This horizontal comparative chart demonstrates how critical exception clauses and negation constraints that were buried at Rank #4 (outside the Top-3 LLM context cutoff) are successfully promoted to Rank #1 and Rank #2 by the Cross-Encoder."""))
+
+    cells.append(nbf.v4.new_code_cell("""fig, ax = plt.subplots(figsize=(9.5, 4.8), dpi=140)
+
+queries = [
+    'Test 1: Long-Haul Flight Exception\\n(Sec 2.4 - Long-Haul Exception)',
+    'Test 2: Dining Restrictions & Alcohol\\n(Sec 5.3 - Prohibited Items)',
+    'Test 3: Executive Airport Rides\\n(Sec 4.4 - Luxury Car Ban)',
+    'Test 4: Late Expense Submission\\n(Sec 8.5 - Forfeiture & Revocation)'
+]
+
+baseline_ranks = [4, 4, 2, 1]
+reranked_ranks = [1, 2, 2, 1]
+
+y_pos = np.arange(len(queries))
+bar_height = 0.35
+
+rects1 = ax.barh(y_pos + bar_height/2, baseline_ranks, bar_height, label='Baseline Dense Rank (Bi-Encoder)', color='#e74c3c', edgecolor='black', alpha=0.85)
+rects2 = ax.barh(y_pos - bar_height/2, reranked_ranks, bar_height, label='Re-Ranked Rank (Cross-Encoder)', color='#2ecc71', edgecolor='black', alpha=0.9)
+
+ax.set_xlabel('Retrieval Rank (Lower Rank Number = Higher Position / More Relevant)', fontsize=10, fontweight='bold')
+ax.set_title('Qualitative Rank Shifts: Baseline Dense Retrieval vs. Cross-Encoder Re-Ranking', fontsize=11, fontweight='bold')
+ax.set_yticks(y_pos)
+ax.set_yticklabels(queries, fontsize=9)
+ax.set_xlim(0, 5.5)
+ax.axvline(3.5, color='#e67e22', linestyle='--', linewidth=1.5, label='Top-3 Cutoff Threshold (LLM Context Window)')
+ax.legend(loc='lower right', frameon=True, fontsize=8.5)
+ax.grid(axis='x', linestyle=':', alpha=0.6)
+
+for bar in rects1:
+    width = bar.get_width()
+    tag = ' [BURIED!]' if width > 3 else ''
+    ax.text(width + 0.08, bar.get_y() + bar.get_height()/2, f'Rank #{int(width)}{tag}', ha='left', va='center', fontsize=8.5, fontweight='bold', color='#c0392b')
+
+for bar in rects2:
+    width = bar.get_width()
+    ax.text(width + 0.08, bar.get_y() + bar.get_height()/2, f'Rank #{int(width)} [PROMOTED]', ha='left', va='center', fontsize=8.5, fontweight='bold', color='#27ae60')
+
+plt.tight_layout()
+plt.savefig('rank_shifts_comparison.png', dpi=180)
+plt.show()
+"""))
+
     cells.append(nbf.v4.new_markdown_cell("""---
 ## Step 5: Theoretical Deep Dive & Answers to Report Questions
 

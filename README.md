@@ -14,11 +14,12 @@ This repository contains the complete implementation, stress-testing evaluation,
 | Deliverable | File Path | Description |
 | :--- | :--- | :--- |
 | **Primary Code Submission** | [`rag_baseline_vs_reranking.ipynb`](./rag_baseline_vs_reranking.ipynb) | Single fully-executed Jupyter Notebook with precomputed cell outputs, tables, and visualization charts. |
+| **Technical Report (PDF)** | [`REPORT.pdf`](./REPORT.pdf) | Publication-grade, submission-ready 5-page PDF technical report compiled via LaTeX. |
 | **Technical Report (Markdown)** | [`REPORT.md`](./REPORT.md) | Comprehensive technical report addressing all 4 required sections with empirical tables and scaling proofs. |
-| **Technical Report (PDF)** | [`REPORT.pdf`](./REPORT.pdf) | Formatted, submission-ready 3-page PDF technical report. |
 | **Evaluation Dataset** | [`corporate_travel_and_expense_policy.pdf`](./corporate_travel_and_expense_policy.pdf) | Complex 4-page enterprise policy PDF document (30 clauses) with rules, exceptions, and negations. |
 | **Benchmark Script** | [`run_experiments.py`](./run_experiments.py) | Standalone command-line Python runner for headless benchmarking and latency profiling. |
 | **Results Payload** | [`experiment_results.json`](./experiment_results.json) | Exported JSON dataset containing exact candidate lists, similarity scores, rank shifts, and latencies. |
+| **Rank Shifts Visualization** | [`rank_shifts_comparison.png`](./rank_shifts_comparison.png) | High-resolution bar chart showing Cross-Encoder promotion of buried clauses across the Top-3 threshold. |
 | **Latency Visualization** | [`latency_comparison.png`](./latency_comparison.png) | High-resolution comparative bar chart of retrieval latencies. |
 
 ---
