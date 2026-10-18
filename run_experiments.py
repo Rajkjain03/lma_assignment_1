@@ -1,52 +1,50 @@
 import os
-import sys
 import time
 import json
+import re
 import pymupdf  # PyMuPDF
 import numpy as np
 import pandas as pd
-from tabulate import tabulate
+import matplotlib.pyplot as plt
 import torch
 
 from sentence_transformers import SentenceTransformer, CrossEncoder
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 # Configuration
 BI_ENCODER_MODEL_NAME = "all-MiniLM-L6-v2"
 CROSS_ENCODER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+LLM_MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
 PDF_PATH = "corporate_travel_and_expense_policy.pdf"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[Init] Compute Device: {device}")
 
 # -------------------------------------------------------------
-# STEP 1: DOCUMENT INGESTION & SEMANTIC CHUNKING
+# STEP 1: DOCUMENT INGESTION & ROBUST CHUNKING
 # -------------------------------------------------------------
 def extract_chunks_from_pdf(pdf_path: str):
     """
     Extracts text from PDF and segments into structured section chunks.
-    Each chunk contains chunk_id, section_title, page_number, and text.
+    Uses regex to avoid splitting on inline numbered lists.
     """
     doc = pymupdf.open(pdf_path)
     chunks = []
     chunk_counter = 1
+    sec_re = re.compile(r'^(SECTION\s+\d+[:\s].*|\d+\.\d+\s+[A-Z].*)')
 
     for pno in range(len(doc)):
         page = doc[pno]
-        text = page.get_text()
-        lines = text.split('\n')
-        
-        current_title = f"General Overview (Page {pno+1})"
+        lines = page.get_text().split('\n')
+        current_title = f"Policy Overview (Page {pno+1})"
         current_body = []
-        
+
         for line in lines:
             line_str = line.strip()
             if not line_str or "CONFIDENTIAL" in line_str or "Document ID" in line_str or line_str.startswith("Page "):
                 continue
-            
-            # Detect section / subsection headers (e.g., "1.1 ...", "SECTION ...")
-            is_header = any(line_str.startswith(f"{i}.") for i in range(1, 10)) or line_str.startswith("SECTION")
-            
-            if is_header:
+
+            if sec_re.match(line_str):
                 if current_body:
                     body_text = " ".join(current_body).strip()
                     if len(body_text) > 30:
@@ -61,7 +59,7 @@ def extract_chunks_from_pdf(pdf_path: str):
                 current_title = line_str
             else:
                 current_body.append(line_str)
-                
+
         if current_body:
             body_text = " ".join(current_body).strip()
             if len(body_text) > 30:
@@ -77,9 +75,8 @@ def extract_chunks_from_pdf(pdf_path: str):
     print(f"[Document Ingestion] Extracted {len(chunks)} chunks from {pdf_path}")
     return chunks
 
-
 # -------------------------------------------------------------
-# STEP 2: MODEL INITIALIZATION & VECTOR STORE
+# STEP 2: MODEL INITIALIZATION
 # -------------------------------------------------------------
 print(f"[Model Loading] Loading Bi-Encoder: {BI_ENCODER_MODEL_NAME}...")
 bi_encoder = SentenceTransformer(BI_ENCODER_MODEL_NAME, device=device)
@@ -87,399 +84,299 @@ bi_encoder = SentenceTransformer(BI_ENCODER_MODEL_NAME, device=device)
 print(f"[Model Loading] Loading Cross-Encoder: {CROSS_ENCODER_MODEL_NAME}...")
 cross_encoder = CrossEncoder(CROSS_ENCODER_MODEL_NAME, device=device)
 
+print(f"[Model Loading] Loading Local LLM: {LLM_MODEL_NAME}...")
+llm_tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
+llm_model = AutoModelForCausalLM.from_pretrained(LLM_MODEL_NAME)
+llm_pipe = pipeline("text-generation", model=llm_model, tokenizer=llm_tokenizer, device=device)
+
 def build_vector_store(chunks, model):
-    """
-    Computes dense vector representations for all chunks using Bi-Encoder.
-    Normalized embeddings allow cosine similarity computation via inner product.
-    """
     corpus_texts = [f"{c['section_title']}: {c['text']}" for c in chunks]
     embeddings = model.encode(corpus_texts, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)
     return embeddings, corpus_texts
-
 
 # -------------------------------------------------------------
 # STEP 3: RETRIEVAL PIPELINES
 # -------------------------------------------------------------
 def pipeline_1_baseline_retrieval(query: str, chunks: list, corpus_texts: list, chunk_embeddings: np.ndarray, model, top_k_candidates=10, top_k_final=3):
-    """
-    Pipeline 1 (Baseline Dense Retrieval):
-    1. Embed query into 384-dimensional dense vector.
-    2. Compute cosine similarity against all chunk embeddings.
-    3. Return Top 10 candidate pool and select Top 3 directly for Answer 1 generation.
-    """
     start_time = time.perf_counter()
     query_embedding = model.encode([query], convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)[0]
-    
-    # Cosine similarities
-    similarities = np.dot(chunk_embeddings, query_embedding)
-    top_indices = np.argsort(similarities)[::-1][:top_k_candidates]
-    retrieval_time_ms = (time.perf_counter() - start_time) * 1000.0
+    cosine_sims = np.dot(chunk_embeddings, query_embedding)
+    top_indices = np.argsort(cosine_sims)[::-1][:top_k_candidates]
+    retrieval_time_ms = (time.perf_counter() - start_time) * 1000
 
     candidates = []
     for rank, idx in enumerate(top_indices, 1):
-        candidates.append({
-            "initial_rank": rank,
-            "chunk_idx": int(idx),
-            "chunk_id": chunks[idx]["chunk_id"],
-            "section_title": chunks[idx]["section_title"],
-            "page": chunks[idx]["page"],
-            "text": chunks[idx]["text"],
-            "full_content": corpus_texts[idx],
-            "bi_score": float(similarities[idx])
-        })
-    
-    top_3_chunks = candidates[:top_k_final]
-    return candidates, top_3_chunks, retrieval_time_ms
+        c = dict(chunks[idx])
+        c["initial_rank"] = rank
+        c["cosine_score"] = float(cosine_sims[idx])
+        candidates.append(c)
 
+    top_3_baseline = candidates[:top_k_final]
+    return candidates, top_3_baseline, retrieval_time_ms
 
-def pipeline_2_reranked_retrieval(query: str, baseline_candidates: list, reranker_model, top_k_final=3):
-    """
-    Pipeline 2 (Advanced Re-Ranking):
-    1. Form (query, candidate_chunk) pairs for Top 10 candidates.
-    2. Pass all 10 pairs through Cross-Encoder to compute full self-attention relevance scores.
-    3. Sort candidates descending by Cross-Encoder score and select Top 3 for Answer 2 generation.
-    """
+def pipeline_2_reranking(query: str, candidates: list, cross_encoder_model, top_k_final=3):
     start_time = time.perf_counter()
-    pairs = [[query, c["full_content"]] for c in baseline_candidates]
-    cross_scores = reranker_model.predict(pairs)
-    rerank_time_ms = (time.perf_counter() - start_time) * 1000.0
+    pairs = [(query, c["text"]) for c in candidates]
+    cross_scores = cross_encoder_model.predict(pairs)
+    rerank_time_ms = (time.perf_counter() - start_time) * 1000
 
-    # Add cross score and sort
     reranked_candidates = []
-    for c, score in zip(baseline_candidates, cross_scores):
+    for c, score in zip(candidates, cross_scores):
         item = dict(c)
         item["cross_score"] = float(score)
         reranked_candidates.append(item)
-        
+
     reranked_candidates.sort(key=lambda x: x["cross_score"], reverse=True)
-    
-    # Assign new re-ranked ranks
     for rank, item in enumerate(reranked_candidates, 1):
         item["reranked_rank"] = rank
-        item["rank_delta"] = item["initial_rank"] - item["reranked_rank"]  # Positive means promoted!
+        item["rank_delta"] = item["initial_rank"] - item["reranked_rank"]
 
     top_3_reranked = reranked_candidates[:top_k_final]
     return reranked_candidates, top_3_reranked, rerank_time_ms
 
-
 # -------------------------------------------------------------
-# STEP 4: LLM RESPONSE GENERATION
+# STEP 4: REAL LLM GENERATION (QWEN2.5)
 # -------------------------------------------------------------
-def format_prompt(query: str, context_chunks: list):
-    """
-    Constructs standardized RAG prompt for the LLM.
-    """
-    context_str = "\n\n".join([
-        f"--- CONTEXT CHUNK {i+1} [{c['chunk_id']} | {c['section_title']} (Page {c['page']})] ---\n{c['text']}"
-        for i, c in enumerate(context_chunks)
-    ])
-    prompt = f"""You are an enterprise compliance and policy expert. Answer the user question strictly and exclusively based on the provided context passages below. If the answer is not contained in the context, state clearly that the policy does not provide enough information.
-
-CONTEXT PASSAGES:
-{context_str}
-
-USER QUESTION:
-{query}
-
-COMPLIANCE RESPONSE:"""
-    return prompt
-
-
 def generate_answer(query: str, context_chunks: list):
-    """
-    Generates response from LLM using identical prompt structure.
-    Checks GEMINI_API_KEY, OPENAI_API_KEY, or uses contextual reader.
-    """
-    prompt = format_prompt(query, context_chunks)
-    
-    # Try Gemini API if key is available
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if gemini_key:
-        try:
-            from google import genai
-            client = genai.Client(api_key=gemini_key)
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-            )
-            return response.text.strip()
-        except Exception as e:
-            print(f"[LLM Warning] Gemini API call failed: {e}. Falling back to contextual synthesizer.")
-
-    # Try OpenAI if key is available
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if openai_key:
-        try:
-            import openai
-            client = openai.OpenAI(api_key=openai_key)
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0
-            )
-            return resp.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"[LLM Warning] OpenAI API call failed: {e}. Falling back to contextual synthesizer.")
-
-    # High-fidelity contextual synthesizer strictly based on provided Top 3 chunks
-    return synthesize_contextual_answer(query, context_chunks)
-
-
-def synthesize_contextual_answer(query, context_chunks):
-    """
-    Synthesizes the response strictly adhering to the provided Top 3 chunks.
-    Accurately mirrors LLM behavior when critical clauses are present vs absent.
-    """
-    titles = [c["section_title"] for c in context_chunks]
-    all_text = " ".join([c["text"] for c in context_chunks])
-    
-    has_2_4 = any("2.4" in t for t in titles)
-    has_5_3 = any("5.3" in t for t in titles)
-    has_4_4 = any("4.4" in t for t in titles)
-    has_8_5 = any("8.5" in t for t in titles)
-    
-    q_lower = query.lower()
-
-    # Query 1: Exceptions & Corner Cases (Business Class / Premium Cabins)
-    if "premium" in q_lower or "business class" in q_lower or "negotiations" in q_lower:
-        if has_2_4:
-            return (
-                "Yes, employees may book Business Class under specific long-haul conditions. "
-                "According to Section 2.4 ('Long-Haul International Travel Exception Clause'), "
-                "employees traveling on continuous non-stop international flights exceeding 8 hours—or exceeding "
-                "6 hours if scheduled to deliver a client presentation or attend executive contract negotiations within "
-                "12 hours of flight arrival—are eligible to book Business Class. "
-                "This requires prior written approval from both the Division Vice President and Chief Financial Officer at least 10 business days prior to ticketing."
-            )
-        else:
-            return (
-                "No. Based strictly on the provided policy passages (Section 2.1 'Standard Cabin Class Mandate'), "
-                "all domestic and international air travel must be booked exclusively in Standard Economy (Coach) class, "
-                "regardless of employee seniority, managerial title, or total travel duration. "
-                "The provided context contains no provisions or exceptions permitting business class or premium cabin bookings for client negotiations."
-            )
-
-    # Query 2: Negation & Constraints (Non-covered client meal items / alcohol)
-    elif "not covered" in q_lower or "prohibited" in q_lower or "alcohol" in q_lower or "disallowed" in q_lower:
-        if has_5_3:
-            return (
-                "According to Section 5.3 ('Prohibited Entertainment Items and Alcohol Consumption Limits'), "
-                "the following items are strictly prohibited and non-reimbursable:\n"
-                "1. Alcoholic beverages exceeding one (1) standard single serving of wine or beer per person during authorized client dinners (alcohol during solo employee dining is 100% non-reimbursable).\n"
-                "2. Adult entertainment venues, nightclub admission or table bottle service fees, social club charges, and gentlemen's club invoices.\n"
-                "3. Tobacco, vape products, cannabis, and casino gambling losses.\n"
-                "4. Meals or travel for spouses, partners, dependents, or personal companions accompanying the traveler."
-            )
-        else:
-            return (
-                "Based on the provided context (Section 5.1 and Section 3.2), employees may expense reasonable business meals "
-                "with prospective clients with an itemized receipt showing attendee names. Prohibited items mentioned in the provided text "
-                "only cover hotel room incidentals (mini-bars, in-room movies, gym fees, laundry). "
-                "The provided passages omit specific caps or prohibitions regarding alcohol, nightlife, or entertainment expenses incurred during client dinners."
-            )
-
-    # Query 3: Keyword Trap / Distractor (Executive airport transfer / Uber)
-    elif "uber" in q_lower or "rideshare" in q_lower or "black car" in q_lower:
-        if has_4_4:
-            return (
-                "No. Under Section 4.4 ('Luxury Chauffeured Vehicles and Limousine Prohibition'), "
-                "private chauffeured cars, black sedan executive services, town cars, and stretch limousines are strictly prohibited "
-                "and non-reimbursable for airport transfers or business travel, even if booked via standard mobile applications (e.g., Uber Black, Lyft Black). "
-                "The sole exception is for transporting visiting head-of-state dignitaries or prospective Board of Directors nominees, "
-                "subject to explicit advance sign-off by the Chief Executive Officer."
-            )
-        else:
-            return (
-                "According to Section 4.1 ('Commercial Ridesharing and Taxi Transfers'), employees are expected to use commercial ridesharing "
-                "services (Uber, Lyft) or airport taxis for ground transit between airport terminals and hotels, reimbursable up to $45 per one-way transfer. "
-                "However, the provided context does not distinguish executive black sedans from standard rides, creating an ambiguity."
-            )
-
-    # Query 4: Buried Penalty (Disciplinary action / late expense filing)
-    elif "late" in q_lower or "disciplinary" in q_lower or "month" in q_lower:
-        if has_8_5:
-            return (
-                "Under Section 8.5 ('Late Submission Forfeiture Clause and Card Revocation Penalties'), "
-                "expense reports submitted more than 30 calendar days after travel completion face mandatory automatic rejection and permanent forfeiture "
-                "(no corporate reimbursement will be granted). Furthermore, any employee incurring two (2) or more 30-day late submissions within a single "
-                "rolling fiscal year faces immediate and permanent revocation of corporate credit card privileges, mandatory referral to People Operations "
-                "for formal disciplinary action, and suspension of all future travel privileges."
-            )
-        else:
-            return (
-                "According to Section 8.1 ('Standard Expense Filing Timelines'), employees must compile and submit complete expense reports with itemized receipts "
-                "within 14 calendar days of concluding business travel. The provided context does not specify any formal disciplinary actions, "
-                "card revocation penalties, or permanent forfeitures for submissions delayed beyond 30 days."
-            )
-
-    return f"Response based on provided context passages: {all_text[:250]}..."
-
+    context_str = "\n\n".join([
+        f"[{c['section_title']} (Page {c['page']})]\n{c['text']}"
+        for c in context_chunks
+    ])
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a corporate compliance officer. Answer the user question based strictly and exclusively on the policy text provided below. If the policy does not allow something, does not mention an exception, or lists specific restrictions, state them clearly and concisely."
+        },
+        {
+            "role": "user",
+            "content": f"POLICY CONTEXT:\n{context_str}\n\nQUESTION: {query}"
+        }
+    ]
+    outputs = llm_pipe(messages, max_new_tokens=150, do_sample=False)
+    return outputs[0]["generated_text"][-1]["content"].strip()
 
 # -------------------------------------------------------------
-# STEP 5: TEST SUITE SPECIFICATION (THE 4 EVALUATION QUERIES)
+# STEP 5: TEST SUITE EXECUTION
 # -------------------------------------------------------------
-FAILURE_MODE_TEST_CASES = [
+test_suite = [
     {
-        "test_id": "TEST_01",
-        "failure_mode": "Exceptions & Corner Cases (Buried at Rank #4)",
+        "id": "TEST_01",
+        "category": "Exceptions & Corner Cases",
         "query": "Can staff fly in premium cabins for international client negotiations?",
-        "critical_chunk_id": "CHUNK_07",
-        "critical_section": "2.4 Long-Haul International Travel Exception Clause",
-        "rationale": "Baseline dense retrieval retrieves the general economy mandate (2.1) at Rank #1 and buries the 6-hour client negotiation exception (2.4) at Rank #4. Baseline LLM Answer 1 incorrectly states that premium cabins are strictly forbidden. Re-ranking promotes 2.4 to Rank #1, restoring the true exception policy."
+        "critical_section_keyword": "2.4",
+        "description": "General coach mandate (2.1) dominates dense search, burying long-haul exception (2.4).",
+        "is_genuine_failure": True
     },
     {
-        "test_id": "TEST_02",
-        "failure_mode": "Negation & Constraints (Buried at Rank #4)",
+        "id": "TEST_02",
+        "category": "Negation & Constraints",
         "query": "What items are not covered on expense claims for client business meals?",
-        "critical_chunk_id": "CHUNK_17",
-        "critical_section": "5.3 Prohibited Entertainment Items and Alcohol Consumption Limits",
-        "rationale": "Bi-Encoder embeddings blur negative constraints with positive dinner hosting discussions, ranking the positive hosting chunk (5.1) at #1 and burying the prohibition clause (5.3) at Rank #4. Answer 1 misses the 1-drink cap and adult venue bans; Re-ranking promotes 5.3 to Rank #2, providing the complete list of prohibitions."
+        "critical_section_keyword": "5.3",
+        "description": "Dense search matches positive hosting terms (5.1) and hotel incidentals (3.2), burying meal prohibitions (5.3).",
+        "is_genuine_failure": True
     },
     {
-        "test_id": "TEST_03",
-        "failure_mode": "Keyword Trap / Distractor (High Lexical Overlap)",
+        "id": "TEST_03",
+        "category": "Control Case: Ground Transport",
         "query": "Can I book an executive airport transfer using Uber or ridesharing apps?",
-        "critical_chunk_id": "CHUNK_14",
-        "critical_section": "4.4 Luxury Chauffeured Vehicles and Limousine Prohibition",
-        "rationale": "High lexical overlap with 4.1 ('ridesharing, Uber, airport transfer') misleads baseline dense retrieval into ranking general rideshare allowances at the top. The specific ban on Uber Black and luxury vehicles in 4.4 is promoted to Rank #1 by the Cross-Encoder."
+        "critical_section_keyword": "4.4",
+        "description": "Control query evaluating rideshare permissions (4.1) and limousine ban (4.4). Stable in Top 2.",
+        "is_genuine_failure": False
     },
     {
-        "test_id": "TEST_04",
-        "failure_mode": "Other Document-Specific Failures (Buried Penalty Clause)",
+        "id": "TEST_04",
+        "category": "Control Case: Administrative Penalty",
         "query": "What disciplinary action occurs if expense claims are submitted more than a month late?",
-        "critical_chunk_id": "CHUNK_25",
-        "critical_section": "8.5 Late Submission Forfeiture Clause and Card Revocation Penalties",
-        "rationale": "Baseline retrieval matches the standard 14-day timeline (8.1) at the top, while the severe penalty (credit card revocation and forfeiture) located in 8.5 is surfaced to Rank #1 by the Cross-Encoder."
+        "critical_section_keyword": "8.5",
+        "description": "Control query with unambiguous high semantic overlap to Section 8.5. Top-ranked in both pipelines.",
+        "is_genuine_failure": False
     }
 ]
 
+chunks = extract_chunks_from_pdf(PDF_PATH)
+chunk_embeddings, corpus_texts = build_vector_store(chunks, bi_encoder)
 
-# -------------------------------------------------------------
-# STEP 6: EXPERIMENT EXECUTION & BENCHMARKING
-# -------------------------------------------------------------
-def run_all_experiments():
-    chunks = extract_chunks_from_pdf(PDF_PATH)
-    chunk_embeddings, corpus_texts = build_vector_store(chunks, bi_encoder)
+experiment_records = []
+print("\n" + "="*80)
+print("RUNNING RETRIEVAL EXPERIMENTS & FAILURE MODE STRESS TESTS")
+print("="*80)
 
-    results = []
+for test in test_suite:
+    tid = test["id"]
+    tcat = test["category"]
+    query = test["query"]
+    target_kw = test["critical_section_keyword"]
+    is_fail = test["is_genuine_failure"]
 
-    print("\n" + "="*80)
-    print("RUNNING RETRIEVAL EXPERIMENTS & FAILURE MODE STRESS TESTS")
-    print("="*80)
+    p1_candidates, p1_top3, p1_time = pipeline_1_baseline_retrieval(
+        query, chunks, corpus_texts, chunk_embeddings, bi_encoder
+    )
+    p2_candidates, p2_top3, p2_time = pipeline_2_reranking(
+        query, p1_candidates, cross_encoder
+    )
 
-    for tc in FAILURE_MODE_TEST_CASES:
-        query = tc["query"]
-        print(f"\n>>> Running {tc['test_id']}: [{tc['failure_mode']}]")
-        print(f"Query: \"{query}\"")
+    baseline_target = next((c for c in p1_candidates if target_kw in c["section_title"]), None)
+    reranked_target = next((c for c in p2_candidates if target_kw in c["section_title"]), None)
 
-        # 1. Pipeline 1: Baseline
-        base_candidates, base_top_3, base_lat_ms = pipeline_1_baseline_retrieval(
-            query, chunks, corpus_texts, chunk_embeddings, bi_encoder, top_k_candidates=10, top_k_final=3
-        )
-        answer_1 = generate_answer(query, base_top_3)
+    baseline_rank = baseline_target["initial_rank"] if baseline_target else None
+    reranked_rank = reranked_target["reranked_rank"] if reranked_target else None
+    rank_delta = (baseline_rank - reranked_rank) if (baseline_rank and reranked_rank) else 0
 
-        # 2. Pipeline 2: Re-ranking
-        rerank_candidates, rerank_top_3, rerank_lat_ms = pipeline_2_reranked_retrieval(
-            query, base_candidates, cross_encoder, top_k_final=3
-        )
-        answer_2 = generate_answer(query, rerank_top_3)
+    print(f"\n>>> Running {tid}: [{tcat}]")
+    print(f"Query: \"{query}\"")
+    print(f"  Target Section: '{baseline_target['section_title'] if baseline_target else 'Unknown'}'")
+    print(f"  Baseline Rank: #{baseline_rank} | Re-Ranked Rank: #{reranked_rank} (Shift: {rank_delta:+d})")
 
-        # Locate critical chunk ranks
-        crit_sec = tc["critical_section"]
-        crit_base_rank = None
-        crit_rerank_rank = None
+    ans1 = generate_answer(query, p1_top3)
+    ans2 = generate_answer(query, p2_top3)
 
-        for c in rerank_candidates:
-            if crit_sec.lower() in c["section_title"].lower():
-                crit_base_rank = c["initial_rank"]
-                crit_rerank_rank = c["reranked_rank"]
-                break
-
-        rank_shift = crit_base_rank - crit_rerank_rank if (crit_base_rank and crit_rerank_rank) else 0
-        print(f"  Critical Section: '{crit_sec}'")
-        print(f"  Baseline Rank: #{crit_base_rank} | Re-Ranked Rank: #{crit_rerank_rank} (Shift: +{rank_shift})")
-        print(f"  Baseline Top 3: {[c['section_title'][:30] for c in base_top_3]}")
-        print(f"  Re-Ranked Top 3: {[c['section_title'][:30] for c in rerank_top_3]}")
-        print(f"  Baseline Latency: {base_lat_ms:.2f} ms | Cross-Encoder Latency: {rerank_lat_ms:.2f} ms")
-
-        results.append({
-            "test_id": tc["test_id"],
-            "failure_mode": tc["failure_mode"],
-            "query": query,
-            "critical_section": crit_sec,
-            "baseline_rank": crit_base_rank,
-            "reranked_rank": crit_rerank_rank,
-            "rank_shift": rank_shift,
-            "baseline_top_3": [{"title": c["section_title"], "rank": c["initial_rank"], "score": round(c["bi_score"], 4)} for c in base_top_3],
-            "reranked_top_3": [{"title": c["section_title"], "rank": c["reranked_rank"], "score": round(c["cross_score"], 4)} for c in rerank_top_3],
-            "answer_1_baseline": answer_1,
-            "answer_2_reranked": answer_2,
-            "base_latency_ms": round(base_lat_ms, 2),
-            "rerank_latency_ms": round(rerank_lat_ms, 2),
-            "total_p2_latency_ms": round(base_lat_ms + rerank_lat_ms, 2),
-            "rationale": tc["rationale"]
-        })
-
-    # ---------------------------------------------------------
-    # LATENCY PROFILING (10 WARMED ITERATIONS)
-    # ---------------------------------------------------------
-    print("\n" + "="*80)
-    print("PROFILING LATENCIES ACROSS 10 ITERATIONS")
-    print("="*80)
-    
-    profiling_data = []
-    for tc in FAILURE_MODE_TEST_CASES:
-        q = tc["query"]
-        b_times, r_times = [], []
-        for _ in range(10):
-            base_c, _, b_ms = pipeline_1_baseline_retrieval(q, chunks, corpus_texts, chunk_embeddings, bi_encoder)
-            _, _, r_ms = pipeline_2_reranked_retrieval(q, base_c, cross_encoder)
-            b_times.append(b_ms)
-            r_times.append(r_ms)
-            
-        avg_b = np.mean(b_times)
-        avg_r = np.mean(r_times)
-        avg_total_p2 = avg_b + avg_r
-        profiling_data.append({
-            "test_id": tc["test_id"],
-            "query_type": tc["failure_mode"].split(" (")[0],
-            "baseline_latency_ms": round(float(avg_b), 2),
-            "cross_encoder_latency_ms": round(float(avg_r), 2),
-            "total_pipeline_2_ms": round(float(avg_total_p2), 2),
-            "overhead_ratio": round(float(avg_total_p2 / avg_b), 2)
-        })
-
-    # Save outputs to JSON
-    output_payload = {
-        "device": device,
-        "bi_encoder": BI_ENCODER_MODEL_NAME,
-        "cross_encoder": CROSS_ENCODER_MODEL_NAME,
-        "results": results,
-        "latency_profile": profiling_data
+    record = {
+        "test_id": tid,
+        "category": tcat,
+        "query": query,
+        "target_section": baseline_target["section_title"] if baseline_target else "Not in Top 10",
+        "target_page": baseline_target["page"] if baseline_target else None,
+        "is_genuine_failure": is_fail,
+        "baseline_rank": baseline_rank,
+        "baseline_cosine_score": baseline_target["cosine_score"] if baseline_target else None,
+        "reranked_rank": reranked_rank,
+        "reranked_cross_score": reranked_target["cross_score"] if reranked_target else None,
+        "rank_delta": rank_delta,
+        "p1_top3": [{"title": c["section_title"], "rank": c["initial_rank"], "score": round(c["cosine_score"], 4)} for c in p1_top3],
+        "p2_top3": [{"title": c["section_title"], "rank": c["reranked_rank"], "score": round(c["cross_score"], 4)} for c in p2_top3],
+        "baseline_latency_ms": round(p1_time, 2),
+        "rerank_latency_ms": round(p2_time, 2),
+        "total_p2_latency_ms": round(p1_time + p2_time, 2),
+        "answer_1_baseline": ans1,
+        "answer_2_reranked": ans2
     }
+    experiment_records.append(record)
 
-    with open("experiment_results.json", "w") as f:
-        json.dump(output_payload, f, indent=2)
-    print("\n[Complete] Saved experiment data to experiment_results.json")
+# -------------------------------------------------------------
+# STEP 6: BENCHMARK LATENCY (WARMED 10 ITERATIONS)
+# -------------------------------------------------------------
+print("\n" + "="*80)
+print("PROFILING LATENCIES ACROSS 10 ITERATIONS (WITH 5 WARM-UP RUNS)")
+print("="*80)
 
-    # Print summary tables
-    print("\n" + "="*80)
-    print("TABLE 1: QUALITATIVE RANK SHIFT SUMMARY")
-    print("="*80)
-    rank_table = [
-        [r["test_id"], r["failure_mode"].split(" (")[0], r["critical_section"][:34], f"Rank #{r['baseline_rank']}", f"Rank #{r['reranked_rank']}", f"+{r['rank_shift']} ranks"]
-        for r in results
-    ]
-    print(tabulate(rank_table, headers=["Test ID", "Failure Mode Category", "Critical Target Section", "Baseline", "Re-Ranked", "Rank Shift"], tablefmt="grid"))
+# Warm-up runs
+for test in test_suite:
+    for _ in range(5):
+        c, _, _ = pipeline_1_baseline_retrieval(test["query"], chunks, corpus_texts, chunk_embeddings, bi_encoder)
+        pipeline_2_reranking(test["query"], c, cross_encoder)
 
-    print("\n" + "="*80)
-    print("TABLE 2: LATENCY PROFILING (AVERAGE OVER 10 RUNS)")
-    print("="*80)
-    lat_table = [
-        [p["test_id"], p["query_type"], f"{p['baseline_latency_ms']:.2f} ms", f"{p['cross_encoder_latency_ms']:.2f} ms", f"{p['total_pipeline_2_ms']:.2f} ms", f"{p['overhead_ratio']:.2f}x"]
-        for p in profiling_data
-    ]
-    print(tabulate(lat_table, headers=["Test ID", "Failure Mode Category", "P1 Baseline", "Cross-Encoder", "P2 Total", "Latency Ratio"], tablefmt="grid"))
+latency_benchmarks = []
+NUM_WARMED_RUNS = 10
 
-if __name__ == "__main__":
-    run_all_experiments()
+for test in test_suite:
+    q = test["query"]
+    p1_times = []
+    p2_times = []
+
+    for _ in range(NUM_WARMED_RUNS):
+        c_p1, _, t1 = pipeline_1_baseline_retrieval(q, chunks, corpus_texts, chunk_embeddings, bi_encoder)
+        _, _, t2 = pipeline_2_reranking(q, c_p1, cross_encoder)
+        p1_times.append(t1)
+        p2_times.append(t2)
+
+    mean_p1 = np.mean(p1_times)
+    mean_ce = np.mean(p2_times)
+    mean_total = mean_p1 + mean_ce
+
+    latency_benchmarks.append({
+        "test_id": test["id"],
+        "category": test["category"],
+        "mean_p1_ms": round(float(mean_p1), 2),
+        "mean_ce_ms": round(float(mean_ce), 2),
+        "mean_total_ms": round(float(mean_total), 2),
+        "ratio": round(float(mean_total / mean_p1), 2)
+    })
+
+# Merge benchmarks into records
+for rec, bench in zip(experiment_records, latency_benchmarks):
+    rec["benchmarked_p1_ms"] = bench["mean_p1_ms"]
+    rec["benchmarked_ce_ms"] = bench["mean_ce_ms"]
+    rec["benchmarked_total_ms"] = bench["mean_total_ms"]
+    rec["overhead_ratio"] = bench["ratio"]
+
+payload = {
+    "device": device,
+    "environment": "CPU Benchmark (Local)",
+    "bi_encoder": BI_ENCODER_MODEL_NAME,
+    "cross_encoder": CROSS_ENCODER_MODEL_NAME,
+    "llm_model": LLM_MODEL_NAME,
+    "experiment_records": experiment_records,
+    "latency_benchmarks": latency_benchmarks
+}
+
+with open("experiment_results.json", "w") as f:
+    json.dump(payload, f, indent=2)
+
+print("\n[Complete] Saved experiment data to experiment_results.json")
+
+# -------------------------------------------------------------
+# STEP 7: GENERATE CHARTS DYNAMICALLY FROM experiment_records
+# -------------------------------------------------------------
+# Chart 1: Rank Shifts Comparison
+fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+test_ids = [r["test_id"] for r in experiment_records]
+categories = [f"{r['test_id']}\n({r['category'].split(':')[0]})" for r in experiment_records]
+baseline_ranks = [r["baseline_rank"] for r in experiment_records]
+reranked_ranks = [r["reranked_rank"] for r in experiment_records]
+
+y = np.arange(len(test_ids))
+height = 0.35
+
+rects1 = ax.barh(y + height/2, baseline_ranks, height, label='Bi-Encoder (Pipeline 1)', color='#e74c3c', alpha=0.85, edgecolor='black')
+rects2 = ax.barh(y - height/2, reranked_ranks, height, label='Cross-Encoder (Pipeline 2)', color='#2ecc71', alpha=0.85, edgecolor='black')
+
+ax.axvline(x=3.5, color='#e67e22', linestyle='--', linewidth=2, label='Top-3 LLM Context Cutoff')
+ax.set_xlabel('Retrieval Rank (Lower is Better / Rank 1 = Top Candidate)', fontsize=11, fontweight='bold')
+ax.set_title('Qualitative Retrieval Rank Shifts: Baseline vs. Re-Ranking', fontsize=13, fontweight='bold', pad=15)
+ax.set_yticks(y)
+ax.set_yticklabels(categories, fontsize=10)
+ax.invert_yaxis()
+ax.legend(loc='lower right', framealpha=0.95)
+ax.grid(axis='x', linestyle=':', alpha=0.6)
+
+for rect in rects1:
+    width = rect.get_width()
+    ax.annotate(f'Rank #{int(width)}', xy=(width, rect.get_y() + rect.get_height() / 2),
+                xytext=(5, 0), textcoords="offset points", ha='left', va='center', fontsize=9, fontweight='bold', color='#c0392b')
+
+for rect in rects2:
+    width = rect.get_width()
+    ax.annotate(f'Rank #{int(width)}', xy=(width, rect.get_y() + rect.get_height() / 2),
+                xytext=(5, 0), textcoords="offset points", ha='left', va='center', fontsize=9, fontweight='bold', color='#27ae60')
+
+plt.tight_layout()
+plt.savefig("rank_shifts_comparison.png")
+plt.close()
+print("[Chart Generated] rank_shifts_comparison.png")
+
+# Chart 2: Latency Comparison
+fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+p1_bars = [b["mean_p1_ms"] for b in latency_benchmarks]
+ce_bars = [b["mean_ce_ms"] for b in latency_benchmarks]
+
+bar_width = 0.45
+x_pos = np.arange(len(test_ids))
+
+b1 = ax.bar(x_pos, p1_bars, bar_width, label='Pipeline 1 Baseline (Dense Retrieval)', color='#3498db', edgecolor='black')
+b2 = ax.bar(x_pos, ce_bars, bar_width, bottom=p1_bars, label='Stage 2 Overhead (Cross-Encoder 10 Pairs)', color='#9b59b6', edgecolor='black')
+
+ax.set_ylabel('Execution Runtime (milliseconds)', fontsize=11, fontweight='bold')
+ax.set_title(f'Empirical Retrieval Latency Breakdown across 10 Iterations (CPU Benchmark)', fontsize=12, fontweight='bold', pad=15)
+ax.set_xticks(x_pos)
+ax.set_xticklabels([f"{b['test_id']}\n{b['category'].split(':')[0]}" for b in latency_benchmarks], fontsize=10)
+ax.legend(loc='upper right', framealpha=0.95)
+ax.grid(axis='y', linestyle=':', alpha=0.6)
+
+for i in range(len(test_ids)):
+    tot = p1_bars[i] + ce_bars[i]
+    ax.text(x_pos[i], tot + 3, f"{tot:.1f} ms\n({ce_bars[i]:.1f} ms CE)", ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+plt.tight_layout()
+plt.savefig("latency_comparison.png")
+plt.close()
+print("[Chart Generated] latency_comparison.png")

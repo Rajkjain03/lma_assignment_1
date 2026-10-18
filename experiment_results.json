@@ -1,17 +1,23 @@
 {
-  "device": "cuda",
+  "device": "cpu",
+  "environment": "CPU Benchmark (Local)",
   "bi_encoder": "all-MiniLM-L6-v2",
   "cross_encoder": "cross-encoder/ms-marco-MiniLM-L-6-v2",
-  "results": [
+  "llm_model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "experiment_records": [
     {
       "test_id": "TEST_01",
-      "failure_mode": "Exceptions & Corner Cases (Buried at Rank #4)",
+      "category": "Exceptions & Corner Cases",
       "query": "Can staff fly in premium cabins for international client negotiations?",
-      "critical_section": "2.4 Long-Haul International Travel Exception Clause",
-      "baseline_rank": 4,
+      "target_section": "2.4 Long-Haul International Travel Exception Clause",
+      "target_page": 2,
+      "is_genuine_failure": true,
+      "baseline_rank": 3,
+      "baseline_cosine_score": 0.40386927127838135,
       "reranked_rank": 1,
-      "rank_shift": 3,
-      "baseline_top_3": [
+      "reranked_cross_score": 0.43505895137786865,
+      "rank_delta": 2,
+      "p1_top3": [
         {
           "title": "2.1 Standard Cabin Class Mandate",
           "rank": 1,
@@ -23,44 +29,51 @@
           "score": 0.4127
         },
         {
-          "title": "General Overview (Page 1)",
+          "title": "2.4 Long-Haul International Travel Exception Clause",
           "rank": 3,
-          "score": 0.4053
+          "score": 0.4039
         }
       ],
-      "reranked_top_3": [
+      "p2_top3": [
         {
           "title": "2.4 Long-Haul International Travel Exception Clause",
           "rank": 1,
-          "score": 0.08
+          "score": 0.4351
         },
         {
           "title": "2.1 Standard Cabin Class Mandate",
           "rank": 2,
-          "score": -2.4535
+          "score": -5.7229
         },
         {
           "title": "1.2 Mandatory Pre-Trip Travel Authorization",
           "rank": 3,
-          "score": -9.1152
+          "score": -7.9689
         }
       ],
-      "answer_1_baseline": "No. Based strictly on the provided policy passages (Section 2.1 'Standard Cabin Class Mandate'), all domestic and international air travel must be booked exclusively in Standard Economy (Coach) class, regardless of employee seniority, managerial title, or total travel duration. The provided context contains no provisions or exceptions permitting business class or premium cabin bookings for client negotiations.",
-      "answer_2_reranked": "Yes, employees may book Business Class under specific long-haul conditions. According to Section 2.4 ('Long-Haul International Travel Exception Clause'), employees traveling on continuous non-stop international flights exceeding 8 hours\u2014or exceeding 6 hours if scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival\u2014are eligible to book Business Class. This requires prior written approval from both the Division Vice President and Chief Financial Officer at least 10 business days prior to ticketing.",
-      "base_latency_ms": 9.08,
-      "rerank_latency_ms": 15.18,
-      "total_p2_latency_ms": 24.26,
-      "rationale": "Baseline dense retrieval retrieves the general economy mandate (2.1) at Rank #1 and buries the 6-hour client negotiation exception (2.4) at Rank #4. Baseline LLM Answer 1 incorrectly states that premium cabins are strictly forbidden. Re-ranking promotes 2.4 to Rank #1, restoring the true exception policy."
+      "baseline_latency_ms": 10.25,
+      "rerank_latency_ms": 112.02,
+      "total_p2_latency_ms": 122.27,
+      "answer_1_baseline": "Yes, staff can fly in premium cabins for international client negotiations. However, they need to obtain prior written concurrence from both the Division Vice President and the Chief Financial Officer at least 10 business days before ticketing.",
+      "answer_2_reranked": "Yes, staff can fly in premium cabins for international client negotiations under the long-haul international travel exception clause. The policy allows this exception when traveling on continuous non-stop international flights with flight durations exceeding 8 hours or 6 hours if the traveler is scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival. Employees need prior written concurrence from both the Division Vice President and the Chief Financial Officer no later than 10 business days before booking their tickets.",
+      "benchmarked_p1_ms": 9.78,
+      "benchmarked_ce_ms": 122.83,
+      "benchmarked_total_ms": 132.61,
+      "overhead_ratio": 13.56
     },
     {
       "test_id": "TEST_02",
-      "failure_mode": "Negation & Constraints (Buried at Rank #4)",
+      "category": "Negation & Constraints",
       "query": "What items are not covered on expense claims for client business meals?",
-      "critical_section": "5.3 Prohibited Entertainment Items and Alcohol Consumption Limits",
-      "baseline_rank": 4,
+      "target_section": "5.3 Prohibited Entertainment Items and Alcohol Consumption Limits",
+      "target_page": 3,
+      "is_genuine_failure": true,
+      "baseline_rank": 3,
+      "baseline_cosine_score": 0.4615306854248047,
       "reranked_rank": 2,
-      "rank_shift": 2,
-      "baseline_top_3": [
+      "reranked_cross_score": 1.1170508861541748,
+      "rank_delta": 1,
+      "p1_top3": [
         {
           "title": "5.1 Client Entertainment and Prospective Partner Hosting",
           "rank": 1,
@@ -72,44 +85,51 @@
           "score": 0.5562
         },
         {
-          "title": "General Overview (Page 4)",
+          "title": "5.3 Prohibited Entertainment Items and Alcohol Consumption Limits",
           "rank": 3,
-          "score": 0.476
+          "score": 0.4615
         }
       ],
-      "reranked_top_3": [
+      "p2_top3": [
         {
           "title": "5.1 Client Entertainment and Prospective Partner Hosting",
           "rank": 1,
-          "score": 3.028
+          "score": 2.6435
         },
         {
           "title": "5.3 Prohibited Entertainment Items and Alcohol Consumption Limits",
           "rank": 2,
-          "score": 2.0663
+          "score": 1.1171
         },
         {
           "title": "3.2 Prohibited Hotel Incidentals and Personal Amenities",
           "rank": 3,
-          "score": -2.4074
+          "score": -1.5279
         }
       ],
-      "answer_1_baseline": "Based on the provided context (Section 5.1 and Section 3.2), employees may expense reasonable business meals with prospective clients with an itemized receipt showing attendee names. Prohibited items mentioned in the provided text only cover hotel room incidentals (mini-bars, in-room movies, gym fees, laundry). The provided passages omit specific caps or prohibitions regarding alcohol, nightlife, or entertainment expenses incurred during client dinners.",
-      "answer_2_reranked": "According to Section 5.3 ('Prohibited Entertainment Items and Alcohol Consumption Limits'), the following items are strictly prohibited and non-reimbursable:\n1. Alcoholic beverages exceeding one (1) standard single serving of wine or beer per person during authorized client dinners (alcohol during solo employee dining is 100% non-reimbursable).\n2. Adult entertainment venues, nightclub admission or table bottle service fees, social club charges, and gentlemen's club invoices.\n3. Tobacco, vape products, cannabis, and casino gambling losses.\n4. Meals or travel for spouses, partners, dependents, or personal companions accompanying the traveler.",
-      "base_latency_ms": 6.16,
-      "rerank_latency_ms": 17.83,
-      "total_p2_latency_ms": 24.0,
-      "rationale": "Bi-Encoder embeddings blur negative constraints with positive dinner hosting discussions, ranking the positive hosting chunk (5.1) at #1 and burying the prohibition clause (5.3) at Rank #4. Answer 1 misses the 1-drink cap and adult venue bans; Re-ranking promotes 5.3 to Rank #2, providing the complete list of prohibitions."
+      "baseline_latency_ms": 9.68,
+      "rerank_latency_ms": 141.97,
+      "total_p2_latency_ms": 151.65,
+      "answer_1_baseline": "Based on the policy context provided, the following items are not covered on expense claims for client business meals:\n\n- In-room video on-demand/movie rentals\n- Mini-bar consumption\n- Laundry service for trips shorter than 5 days\n- Spa services\n- Sauna access\n- Dry cleaning fees\n- Hotel gym or fitness center pass fees\n\nThese items are specifically excluded from the reimbursement of business meal expenses as outlined in the policy.",
+      "answer_2_reranked": "Based on the policy context provided, the items that are not covered on expense claims for client business meals are:\n\n(a) Alcoholic beverages exceeding one (1) standard single serving of wine or beer per person during authorized client dinners.\n(b) Adult entertainment venues, nightclub admission or table bottle service fees, social club charges, and gentlemen's club invoices.\n(c) Tobacco, vape products, cannabis, and casino gambling losses.\n(d) Meals or travel for spouses, partners, dependents, or personal companions accompanying the traveler.",
+      "benchmarked_p1_ms": 9.36,
+      "benchmarked_ce_ms": 140.54,
+      "benchmarked_total_ms": 149.9,
+      "overhead_ratio": 16.01
     },
     {
       "test_id": "TEST_03",
-      "failure_mode": "Keyword Trap / Distractor (High Lexical Overlap)",
+      "category": "Control Case: Ground Transport",
       "query": "Can I book an executive airport transfer using Uber or ridesharing apps?",
-      "critical_section": "4.4 Luxury Chauffeured Vehicles and Limousine Prohibition",
+      "target_section": "4.4 Luxury Chauffeured Vehicles and Limousine Prohibition",
+      "target_page": 3,
+      "is_genuine_failure": false,
       "baseline_rank": 2,
+      "baseline_cosine_score": 0.4515947699546814,
       "reranked_rank": 2,
-      "rank_shift": 0,
-      "baseline_top_3": [
+      "reranked_cross_score": 1.1140797138214111,
+      "rank_delta": 0,
+      "p1_top3": [
         {
           "title": "4.1 Commercial Ridesharing and Taxi Transfers",
           "rank": 1,
@@ -126,39 +146,46 @@
           "score": 0.3701
         }
       ],
-      "reranked_top_3": [
+      "p2_top3": [
         {
           "title": "4.1 Commercial Ridesharing and Taxi Transfers",
           "rank": 1,
-          "score": 2.0332
+          "score": 2.1017
         },
         {
           "title": "4.4 Luxury Chauffeured Vehicles and Limousine Prohibition",
           "rank": 2,
-          "score": -0.7708
+          "score": 1.1141
         },
         {
           "title": "2.4 Long-Haul International Travel Exception Clause",
           "rank": 3,
-          "score": -8.798
+          "score": -7.7787
         }
       ],
-      "answer_1_baseline": "No. Under Section 4.4 ('Luxury Chauffeured Vehicles and Limousine Prohibition'), private chauffeured cars, black sedan executive services, town cars, and stretch limousines are strictly prohibited and non-reimbursable for airport transfers or business travel, even if booked via standard mobile applications (e.g., Uber Black, Lyft Black). The sole exception is for transporting visiting head-of-state dignitaries or prospective Board of Directors nominees, subject to explicit advance sign-off by the Chief Executive Officer.",
-      "answer_2_reranked": "No. Under Section 4.4 ('Luxury Chauffeured Vehicles and Limousine Prohibition'), private chauffeured cars, black sedan executive services, town cars, and stretch limousines are strictly prohibited and non-reimbursable for airport transfers or business travel, even if booked via standard mobile applications (e.g., Uber Black, Lyft Black). The sole exception is for transporting visiting head-of-state dignitaries or prospective Board of Directors nominees, subject to explicit advance sign-off by the Chief Executive Officer.",
-      "base_latency_ms": 7.68,
-      "rerank_latency_ms": 17.55,
-      "total_p2_latency_ms": 25.22,
-      "rationale": "High lexical overlap with 4.1 ('ridesharing, Uber, airport transfer') misleads baseline dense retrieval into ranking general rideshare allowances at the top. The specific ban on Uber Black and luxury vehicles in 4.4 is promoted to Rank #1 by the Cross-Encoder."
+      "baseline_latency_ms": 9.75,
+      "rerank_latency_ms": 119.22,
+      "total_p2_latency_ms": 128.96,
+      "answer_1_baseline": "Yes, you can book an executive airport transfer using Uber or ridesharing apps.",
+      "answer_2_reranked": "Yes, you can book an executive airport transfer using Uber or ridesharing apps as long as it's done through standard UberX or Lyft Standard rides, which are reimbursable up to $45 per one-way airport transfer without itemized route auditing.",
+      "benchmarked_p1_ms": 9.3,
+      "benchmarked_ce_ms": 114.63,
+      "benchmarked_total_ms": 123.92,
+      "overhead_ratio": 13.33
     },
     {
       "test_id": "TEST_04",
-      "failure_mode": "Other Document-Specific Failures (Buried Penalty Clause)",
+      "category": "Control Case: Administrative Penalty",
       "query": "What disciplinary action occurs if expense claims are submitted more than a month late?",
-      "critical_section": "8.5 Late Submission Forfeiture Clause and Card Revocation Penalties",
+      "target_section": "8.5 Late Submission Forfeiture Clause and Card Revocation Penalties",
+      "target_page": 4,
+      "is_genuine_failure": false,
       "baseline_rank": 1,
+      "baseline_cosine_score": 0.656466007232666,
       "reranked_rank": 1,
-      "rank_shift": 0,
-      "baseline_top_3": [
+      "reranked_cross_score": 5.231941223144531,
+      "rank_delta": 0,
+      "p1_top3": [
         {
           "title": "8.5 Late Submission Forfeiture Clause and Card Revocation Penalties",
           "rank": 1,
@@ -175,63 +202,66 @@
           "score": 0.4676
         }
       ],
-      "reranked_top_3": [
+      "p2_top3": [
         {
           "title": "8.5 Late Submission Forfeiture Clause and Card Revocation Penalties",
           "rank": 1,
-          "score": 5.2011
+          "score": 5.2319
         },
         {
           "title": "8.4 Post-Payment Audit Protocols",
           "rank": 2,
-          "score": -5.5022
+          "score": -5.6809
         },
         {
           "title": "8.1 Standard Expense Filing Timelines",
           "rank": 3,
-          "score": -5.8506
+          "score": -5.7168
         }
       ],
-      "answer_1_baseline": "Under Section 8.5 ('Late Submission Forfeiture Clause and Card Revocation Penalties'), expense reports submitted more than 30 calendar days after travel completion face mandatory automatic rejection and permanent forfeiture (no corporate reimbursement will be granted). Furthermore, any employee incurring two (2) or more 30-day late submissions within a single rolling fiscal year faces immediate and permanent revocation of corporate credit card privileges, mandatory referral to People Operations for formal disciplinary action, and suspension of all future travel privileges.",
-      "answer_2_reranked": "Under Section 8.5 ('Late Submission Forfeiture Clause and Card Revocation Penalties'), expense reports submitted more than 30 calendar days after travel completion face mandatory automatic rejection and permanent forfeiture (no corporate reimbursement will be granted). Furthermore, any employee incurring two (2) or more 30-day late submissions within a single rolling fiscal year faces immediate and permanent revocation of corporate credit card privileges, mandatory referral to People Operations for formal disciplinary action, and suspension of all future travel privileges.",
-      "base_latency_ms": 8.38,
-      "rerank_latency_ms": 18.33,
-      "total_p2_latency_ms": 26.7,
-      "rationale": "Baseline retrieval matches the standard 14-day timeline (8.1) at the top, while the severe penalty (credit card revocation and forfeiture) located in 8.5 is surfaced to Rank #1 by the Cross-Encoder."
+      "baseline_latency_ms": 9.57,
+      "rerank_latency_ms": 122.6,
+      "total_p2_latency_ms": 132.17,
+      "answer_1_baseline": "If expense claims are submitted more than a month late, employees will face immediate and permanent revocation of their corporate credit card privileges, mandatory referral to People Operations for formal disciplinary action, and suspension of all future travel privileges.",
+      "answer_2_reranked": "If expense claims are submitted more than a month late, employees will face immediate and permanent revocation of their corporate credit card privileges, mandatory referral to People Operations for formal disciplinary action, and suspension of all future travel privileges.",
+      "benchmarked_p1_ms": 9.85,
+      "benchmarked_ce_ms": 124.06,
+      "benchmarked_total_ms": 133.91,
+      "overhead_ratio": 13.59
     }
   ],
-  "latency_profile": [
+  "latency_benchmarks": [
     {
       "test_id": "TEST_01",
-      "query_type": "Exceptions & Corner Cases",
-      "baseline_latency_ms": 9.8,
-      "cross_encoder_latency_ms": 17.99,
-      "total_pipeline_2_ms": 27.79,
-      "overhead_ratio": 2.83
+      "category": "Exceptions & Corner Cases",
+      "mean_p1_ms": 9.78,
+      "mean_ce_ms": 122.83,
+      "mean_total_ms": 132.61,
+      "ratio": 13.56
     },
     {
       "test_id": "TEST_02",
-      "query_type": "Negation & Constraints",
-      "baseline_latency_ms": 9.91,
-      "cross_encoder_latency_ms": 21.02,
-      "total_pipeline_2_ms": 30.93,
-      "overhead_ratio": 3.12
+      "category": "Negation & Constraints",
+      "mean_p1_ms": 9.36,
+      "mean_ce_ms": 140.54,
+      "mean_total_ms": 149.9,
+      "ratio": 16.01
     },
     {
       "test_id": "TEST_03",
-      "query_type": "Keyword Trap / Distractor",
-      "baseline_latency_ms": 8.81,
-      "cross_encoder_latency_ms": 19.03,
-      "total_pipeline_2_ms": 27.84,
-      "overhead_ratio": 3.16
+      "category": "Control Case: Ground Transport",
+      "mean_p1_ms": 9.3,
+      "mean_ce_ms": 114.63,
+      "mean_total_ms": 123.92,
+      "ratio": 13.33
     },
     {
       "test_id": "TEST_04",
-      "query_type": "Other Document-Specific Failures",
-      "baseline_latency_ms": 9.53,
-      "cross_encoder_latency_ms": 19.42,
-      "total_pipeline_2_ms": 28.95,
-      "overhead_ratio": 3.04
+      "category": "Control Case: Administrative Penalty",
+      "mean_p1_ms": 9.85,
+      "mean_ce_ms": 124.06,
+      "mean_total_ms": 133.91,
+      "ratio": 13.59
     }
   ]
 }

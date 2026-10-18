@@ -1,7 +1,7 @@
-# RAG Assignment Report: Baseline Dense Retrieval vs. Cross-Encoder Re-Ranking
+# Technical Report: Retrieval-Augmented Generation (Baseline vs. Re-Ranking)
 
-**Student Name:** Raj K. Jain  
 **Course:** Large Language Models & AI Systems (LMA)  
+**Student:** Raj K. Jain  
 **Deliverables:** GitHub Repository + Technical Report  
 **Date:** October 2026  
 
@@ -9,24 +9,22 @@
 
 ## 1. Architecture Comparison: Bi-Encoder vs. Cross-Encoder
 
-In modern Retrieval-Augmented Generation (RAG) systems, document retrieval is tasked with identifying the most relevant chunks from an indexed corpus for a given user query. Two fundamentally distinct neural architectures are used for this purpose: **Bi-Encoders** and **Cross-Encoders**.
+In Retrieval-Augmented Generation (RAG), retrieval identifies relevant document passages from a corpus given a user query. Two distinct neural architectures are commonly used: **Bi-Encoders** and **Cross-Encoders**.
 
 ```
-BI-ENCODER ARCHITECTURE (Two-Tower / Independent Encoding):
-  Query (q)  -------> [ Transformer Tower ] -------> Dense Vector u (384-d)  \
-                                                                                ---> Cosine Similarity: cos(u, v)
-  Chunk (c)  -------> [ Transformer Tower ] -------> Dense Vector v (384-d)  /
-  (Corpus vectors v are computed once offline and indexed into Vector DB / FAISS)
+BI-ENCODER (Independent Encoding / Dense Vectors):
+  Query (q)  -------> [ Transformer ] -------> Dense Vector u (384-d)  \
+                                                                        ---> Cosine Similarity: cos(u, v)
+  Chunk (c)  -------> [ Transformer ] -------> Dense Vector v (384-d)  /
+  (Passage embeddings are computed once offline and indexed into FAISS / Vector DB)
 
-CROSS-ENCODER ARCHITECTURE (Joint All-to-All Self-Attention):
+CROSS-ENCODER (Joint Token-Level Multi-Head Self-Attention):
   [CLS] + Query tokens + [SEP] + Chunk tokens + [SEP]
                          │
                          ▼
              ┌────────────────────────┐
              │ Layer 1 Self-Attention │  <-- Every query token attends
              ├────────────────────────┤      directly to every chunk token
-             │ Layer 2 Self-Attention │
-             ├────────────────────────┤
              │ ... All Layers ...     │
              ├────────────────────────┤
              │ Classification Head    │
@@ -34,131 +32,159 @@ CROSS-ENCODER ARCHITECTURE (Joint All-to-All Self-Attention):
                          │
                          ▼
              Relevance Logit S(q, c) in (-inf, +inf)
-  (Cannot be precomputed; requires live forward pass for every query-chunk pair)
+  (Cannot be precomputed; requires a live joint forward pass for each candidate pair)
 ```
 
 ### Core Mechanical Differences
 
 1. **Token Interaction & Representation Bottleneck:**
-   * **Bi-Encoder (e.g., `all-MiniLM-L6-v2`):** Processes the query $q$ and document chunk $c$ in complete isolation. The transformer generates contextual token representations for the document alone and then compresses them via mean-pooling into a single fixed-length dense vector $\vec{v} \in \mathbb{R}^{384}$. At retrieval time, the query is similarly compressed into $\vec{u} \in \mathbb{R}^{384}$. **Tokens of the query never attend to tokens of the document.** Semantic similarity is approximated solely by the geometric angle between the two vectors: $\cos(\vec{u}, \vec{v}) = \frac{\vec{u} \cdot \vec{v}}{\|\vec{u}\| \|\vec{v}\|}$. Squeezing an entire 300-word paragraph into a 384-dimensional vector causes a severe informational bottleneck where conditional exceptions, negations, and specific qualifiers are blurred.
-   * **Cross-Encoder (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2`):** Receives the concatenated sequence `[CLS] query [SEP] chunk [SEP]` and feeds it jointly into all transformer layers. Through bidirectional multi-head self-attention:
+   * **Bi-Encoder (`all-MiniLM-L6-v2`):** Encodes the query $q$ and candidate chunk $c$ independently. Each text is compressed via mean-pooling into a single dense vector $\vec{u}, \vec{v} \in \mathbb{R}^{384}$. At retrieval time, similarity is measured purely through cosine similarity:
+     $$\cos(\vec{u}, \vec{v}) = \frac{\vec{u} \cdot \vec{v}}{\|\vec{u}\|_2 \|\vec{v}\|_2}$$
+     Because the two texts are encoded in isolation, query tokens never attend to chunk tokens. Squeezing an entire 200–300 word policy paragraph into 384 floating-point numbers creates an informational bottleneck where conditional exceptions, negative constraints, and subtle qualifiers are easily blurred.
+   * **Cross-Encoder (`ms-marco-MiniLM-L-6-v2`):** Receives the concatenated input sequence $[\text{CLS}] \circ q \circ [\text{SEP}] \circ c \circ [\text{SEP}]$ into all transformer layers. Through multi-head self-attention:
      $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
-     every token in the query directly compares against every token in the passage across all hidden layers. This allows the model to capture deep semantic dependencies, identify modifier words ("only if", "except when", "prohibited"), and evaluate whether the chunk truly answers the specific intent of the query.
+     every query token directly compares against every token in the passage across all hidden layers. This allows the model to capture deep semantic dependencies, identify modifier words ("except when", "strictly prohibited"), and evaluate whether the chunk truly answers the specific intent of the query.
 
 2. **Computational Complexity & Indexability:**
-   * **Bi-Encoder:** Allows offline precomputation. For a corpus of $N$ chunks, all $N$ embeddings are computed once and stored in an Approximate Nearest Neighbor (ANN) index (e.g., HNSW or IVF in FAISS). At runtime, searching $1,000,000$ chunks requires just 1 forward pass for the query and a fast vector scan taking 3–10 milliseconds ($O(d \cdot \log N)$).
+   * **Bi-Encoder:** Enables offline precomputation. For a corpus of $N$ chunks, all $N$ embeddings are computed once and stored in an Approximate Nearest Neighbor (ANN) index (e.g., HNSW or IVF in FAISS). At runtime, searching $1,000,000$ chunks requires just 1 forward pass for the query and a fast vector scan taking 5–10 milliseconds ($O(d \cdot \log N)$).
    * **Cross-Encoder:** Cannot be precomputed because the joint representation depends on both the query and the chunk simultaneously. Scoring $N$ candidate chunks requires $N$ full forward passes through the transformer with quadratic token complexity $O(N \cdot L^2)$.
+
+### Summary Comparison
+
+| Metric | Bi-Encoder (`all-MiniLM-L6-v2`) | Cross-Encoder (`ms-marco-MiniLM-L-6-v2`) |
+| :--- | :--- | :--- |
+| **Model Topology** | Dual independent encoder towers | Single joint concatenated transformer |
+| **Token Interaction** | Zero cross-attention across $q$ and $c$ | Full all-to-all cross-attention across all layers |
+| **Relevance Output** | Geometric cosine similarity $\cos(\vec{u}, \vec{v})$ | Learned classification head logit $S(q, c)$ |
+| **Offline Indexing** | Yes (vectors stored in FAISS / Vector DB) | No (requires live forward pass per pair) |
+| **Search Complexity** | Sub-linear: $O(d \cdot \log N)$ with ANN | Linear: $O(N \cdot L^2)$ with $N$ forward passes |
+| **Linguistic Precision** | Fast broad matching; prone to losing qualifiers | State-of-the-art; captures syntax and negations |
 
 ---
 
 ## 2. Qualitative & Rank Shift Analysis
 
-We evaluated the systems against our realistic enterprise compliance document: **"Acme Global Travel, Expense & Procurement Policy (2026)"** (30 structured clauses). 
+### Evaluation Setup & Document Corpus
+We evaluated both pipelines over a complex 4-page enterprise policy document: *"Acme Global Travel, Expense and Procurement Policy (2026)"* containing 30 structured clauses.
 
-Below is the documented evidence of rank shifts for failure queries where baseline dense retrieval stumbled, and two-stage cross-encoder re-ranking restored accuracy:
+> **Evaluation Corpus Note:** This document is a synthetic enterprise compliance manual authored to stress-test RAG retrieval boundaries. It contains general rules with distant exception clauses, negative constraints, and high lexical overlap distractors.
 
-### Summary of Failure Modes and Rank Promotions
+We evaluated four queries:
+* **TEST_01 & TEST_02:** Genuine retrieval degradation cases where the Bi-Encoder blurs context and re-ranking restores accuracy.
+* **TEST_03 & TEST_04:** Control queries where both pipelines agree on the top candidates.
 
-| Test ID | Failure Mode Category | Critical Document Clause | Baseline Dense Rank | Re-Ranked Cross-Encoder Rank | Net Promotion Shift | Buried in Baseline Top 3? |
+### Qualitative Retrieval Rank Shifts
+
+| Test ID | Category | Target Policy Section | Bi-Encoder Rank | Cross-Encoder Rank | Net Shift | Target In Top 3? |
 | :---: | :--- | :--- | :---: | :---: | :---: | :---: |
-| **TEST_01** | **Exceptions & Corner Cases** | Section 2.4 (*Long-Haul International Travel Exception Clause*) | **Rank #4** | **Rank #1** | **+3 Ranks** | **YES** (Omitted from Prompt) |
-| **TEST_02** | **Negation & Constraints** | Section 5.3 (*Prohibited Entertainment Items & Alcohol Limits*) | **Rank #4** | **Rank #2** | **+2 Ranks** | **YES** (Omitted from Prompt) |
-| **TEST_03** | **Keyword Trap / Distractor** | Section 4.4 (*Luxury Chauffeured Vehicles & Limousine Ban*) | Rank #2 | Rank #2 | Surfaced in Top 2 | Preserved in Top 2 |
-| **TEST_04** | **Buried Penalty Clause** | Section 8.5 (*Late Submission Forfeiture & Card Revocation*) | Rank #1 | Rank #1 | Top Ranked | Retained at Rank #1 |
+| **TEST_01** | Exceptions & Corner Cases | Sec 2.4 (Long-Haul Flight Exception) | Rank #3 (score: 0.4039) | **Rank #1 (score: +0.4351)** | **+2** | Promoted to #1 |
+| **TEST_02** | Negation & Constraints | Sec 5.3 (Prohibited Items & Alcohol Limits) | Rank #3 (score: 0.4615) | **Rank #2 (score: +1.1171)** | **+1** | Promoted to #2 |
+| **TEST_03** | Control: Ground Transport | Sec 4.4 (Limousine & Luxury Car Ban) | Rank #2 (score: 0.4516) | Rank #2 (score: +1.1141) | +0 | Retained in Top 2 |
+| **TEST_04** | Control: Admin Penalty | Sec 8.5 (Late Submission Forfeiture) | Rank #1 (score: 0.6552) | Rank #1 (score: +6.1669) | +0 | Retained at Rank #1 |
 
 ![Qualitative Rank Shifts Comparison](rank_shifts_comparison.png)
 
 ---
 
 ### Detailed Case Study 1: Exceptions & Corner Cases (TEST_01)
-* **User Query:** *"Can staff fly in premium cabins for international client negotiations?"*
-* **Target Truth:** Section 2.4 explicitly permits Business Class for international flights exceeding 6 hours if the traveler is presenting to a client or conducting negotiations within 12 hours of arrival, subject to VP and CFO approval.
-* **Baseline Retrieval Failure:**
-  * Baseline Dense Ranks:
-    1. **Rank #1:** Section 2.1 (*Standard Cabin Class Mandate*) — Score: 0.441
-    2. **Rank #2:** Section 1.3 (*Designated Corporate Travel Booking Engine*) — Score: 0.385
-    3. **Rank #3:** General Overview (Page 1) — Score: 0.354
-    4. **Rank #4 (BURIED):** Section 2.4 (*Long-Haul International Travel Exception Clause*) — Score: 0.348
-  * Because Section 2.4 sat outside the Top 3, the Baseline Prompt only received Section 2.1 (which states that all travel must be in Standard Economy regardless of seniority).
-  * **LLM Answer 1 (Baseline):**
-    > *"No. Based strictly on the provided policy passages (Section 2.1 'Standard Cabin Class Mandate'), all domestic and international air travel must be booked exclusively in Standard Economy (Coach) class, regardless of employee seniority, managerial title, or total travel duration. The provided context contains no provisions or exceptions permitting business class or premium cabin bookings for client negotiations."*
-    * **Failure Impact:** The baseline generated a **critically incorrect negative answer** (misstated policy), causing an employee to forgo a valid corporate travel accommodation.
-* **Cross-Encoder Re-Ranking Resolution:**
-  * The Cross-Encoder performed full attention between the query words ("premium cabins", "international client negotiations") and Section 2.4, immediately recognizing that Section 2.4's condition directly answers the query.
-  * Re-Ranked Ranks:
-    1. **Rank #1:** Section 2.4 (*Long-Haul International Travel Exception Clause*) — Score: +4.82 (**Promoted from Rank #4 to #1**)
-    2. **Rank #2:** Section 2.1 (*Standard Cabin Class Mandate*) — Score: +1.15
-    3. **Rank #3:** Section 1.2 (*Mandatory Pre-Trip Travel Authorization*) — Score: -1.84
-  * **LLM Answer 2 (Re-Ranked):**
-    > *"Yes, employees may book Business Class under specific long-haul conditions. According to Section 2.4 ('Long-Haul International Travel Exception Clause'), employees traveling on continuous non-stop international flights exceeding 8 hours—or exceeding 6 hours if scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival—are eligible to book Business Class. This requires prior written approval from both the Division Vice President and Chief Financial Officer at least 10 business days prior to ticketing."*
-    * **Result:** Re-ranking completely eliminated the error and produced 100% compliant guidance.
+* **Query:** *"Can staff fly in premium cabins for international client negotiations?"*
+* **Target Truth:** Section 2.4 allows Business Class for continuous non-stop international flights exceeding 8 hours, or exceeding 6 hours if the traveler is scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of arrival, subject to VP and CFO approval.
+* **Retrieval Comparison:**
+  * **Pipeline 1 (Baseline Bi-Encoder):**
+    * Rank #1: Section 2.1 (*Standard Cabin Class Mandate*) — Score: 0.5428
+    * Rank #2: Section 1.3 (*Designated Corporate Travel Booking Engine*) — Score: 0.4127
+    * Rank #3: Section 2.4 (*Long-Haul International Travel Exception Clause*) — Score: 0.4039
+  * **Pipeline 2 (Cross-Encoder Re-Ranked):**
+    * **Rank #1 (Promoted +2):** Section 2.4 (*Long-Haul International Travel Exception Clause*) — Score: +0.4351
+    * Rank #2: Section 2.1 (*Standard Cabin Class Mandate*) — Score: -5.7229
+    * Rank #3: Section 1.2 (*Mandatory Pre-Trip Travel Authorization*) — Score: -7.9689
+* **LLM Answer Comparison (Qwen2.5-0.5B-Instruct):**
+  * **Baseline Answer 1:**
+    > *"Yes, staff can fly in premium cabins for international client negotiations. However, they need to obtain prior written concurrence from both the Division Vice President and the Chief Financial Officer at least 10 business days before ticketing."*
+    * **Observation:** The baseline model omitted the critical flight duration criteria (must exceed 8 hours, or 6 hours with a presentation within 12 hours) because Section 2.1 dominated the prompt context.
+  * **Re-Ranked Answer 2:**
+    > *"Yes, staff can fly in premium cabins for international client negotiations under the long-haul international travel exception clause. The policy allows this exception when traveling on continuous non-stop international flights with flight durations exceeding 8 hours or 6 hours if the traveler is scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival. Employees need prior written concurrence from both the Division Vice President and the Chief Financial Officer no later than 10 business days before booking their tickets."*
+    * **Observation:** Re-ranking promoted Section 2.4 to the #1 position, providing the model with the exact hourly thresholds and full compliance requirements.
 
 ---
 
 ### Detailed Case Study 2: Negation & Constraints (TEST_02)
-* **User Query:** *"What items are not covered on expense claims for client business meals?"*
-* **Target Truth:** Section 5.3 strictly limits alcohol to 1 drink per diner, completely prohibits solo alcohol, bans adult entertainment/nightclub bottle fees, and disallows meals for accompanying spouses.
-* **Baseline Retrieval Failure:**
-  * Dense embeddings matched the positive words "client business meals" against Section 5.1 (*Client Entertainment and Prospective Partner Hosting*), ranking it at #1. Section 5.3 was buried at **Rank #4**.
-  * **LLM Answer 1 (Baseline):**
-    > *"Based on the provided context (Section 5.1 and Section 3.2), employees may expense reasonable business meals with prospective clients with an itemized receipt showing attendee names. Prohibited items mentioned in the provided text only cover hotel room incidentals (mini-bars, in-room movies, gym fees, laundry). The provided passages omit specific caps or prohibitions regarding alcohol, nightlife, or entertainment expenses incurred during client dinners."*
-    * **Failure Impact:** Severe omission. The LLM was blind to the alcohol cap and nightclub prohibition, creating a compliance loophole for employee fraud.
-* **Cross-Encoder Re-Ranking Resolution:**
-  * The Cross-Encoder's cross-attention detected the negation qualifier "not covered" and aligned it with Section 5.3's "prohibited" and "strictly non-reimbursable" provisions.
-  * Re-ranked Section 5.3 from **Rank #4 $\rightarrow$ Rank #2**.
-  * **LLM Answer 2 (Re-Ranked):**
-    > *"According to Section 5.3 ('Prohibited Entertainment Items and Alcohol Consumption Limits'), the following items are strictly prohibited and non-reimbursable:\n1. Alcoholic beverages exceeding one (1) standard single serving of wine or beer per person during authorized client dinners (alcohol during solo employee dining is 100% non-reimbursable).\n2. Adult entertainment venues, nightclub admission or table bottle service fees, social club charges, and gentlemen's club invoices.\n3. Tobacco, vape products, cannabis, and casino gambling losses.\n4. Meals or travel for spouses, partners, dependents, or personal companions accompanying the traveler."*
+* **Query:** *"What items are not covered on expense claims for client business meals?"*
+* **Target Truth:** Section 5.3 strictly limits alcohol to 1 drink per diner, prohibits solo alcohol, and bans nightclub bottle service, adult venues, tobacco, and gambling losses.
+* **Retrieval Comparison:**
+  * **Pipeline 1 (Baseline Bi-Encoder):**
+    * Rank #1: Section 5.1 (*Client Entertainment Hosting*) — Score: 0.5936
+    * Rank #2: Section 3.2 (*Prohibited Hotel Incidentals and Personal Amenities*) — Score: 0.5562
+    * Rank #3: Section 5.3 (*Prohibited Entertainment Items and Alcohol Limits*) — Score: 0.4615
+  * **Pipeline 2 (Cross-Encoder Re-Ranked):**
+    * Rank #1: Section 5.1 (*Client Entertainment Hosting*) — Score: +2.6435
+    * **Rank #2 (Promoted +1):** Section 5.3 (*Prohibited Entertainment Items and Alcohol Limits*) — Score: +1.1171
+    * Rank #3: Section 3.2 (*Prohibited Hotel Incidentals and Personal Amenities*) — Score: -1.5279
+* **LLM Answer Comparison (Qwen2.5-0.5B-Instruct):**
+  * **Baseline Answer 1 (Hallucination):**
+    > *"Based on the policy context provided, the following items are not covered on expense claims for client business meals:*  
+    > *- In-room video on-demand/movie rentals*  
+    > *- Mini-bar consumption*  
+    > *- Laundry service for trips shorter than 5 days*  
+    > *- Spa services*  
+    > *- Sauna access*  
+    > *- Dry cleaning fees*  
+    > *- Hotel gym or fitness center pass fees*  
+    > *These items are specifically excluded from the reimbursement of business meal expenses as outlined in the policy."*
+    * **Observation:** Because the Bi-Encoder retrieved Section 3.2 (*Hotel Incidentals*) ahead of Section 5.3, the LLM hallucinates that hotel room amenities are the prohibited items for client business meals!
+  * **Re-Ranked Answer 2 (Corrected):**
+    > *"Based on the policy context provided, the items that are not covered on expense claims for client business meals are:*  
+    > *(a) Alcoholic beverages exceeding one (1) standard single serving of wine or beer per person during authorized client dinners.*  
+    > *(b) Adult entertainment venues, nightclub admission or table bottle service fees, social club charges, and gentlemen's club invoices.*  
+    > *(c) Tobacco, vape products, cannabis, and casino gambling losses.*  
+    > *(d) Meals or travel for spouses, partners, dependents, or personal companions accompanying the traveler."*
+    * **Observation:** Promoting Section 5.3 to Rank #2 gave the model the correct dining restrictions, completely eliminating the hotel amenity hallucination.
 
 ---
 
-## 3. Latency Profiling
+## 3. Empirical Latency Profiling
 
-We recorded and tabulated runtimes across 10 warmed iterations on an NVIDIA GeForce RTX GPU. 
+We profiled both retrieval pipelines over **10 warmed iterations** (preceded by 5 warm-up passes to eliminate cold-start overhead) on our local CPU (x86_64, PyTorch CPU execution).
 
-### Latency Benchmark Table
-
-| Test Case | Evaluated Query Category | Pipeline 1: Baseline Dense Retrieval | Stage 2: Cross-Encoder Re-Ranking (Top 10) | Pipeline 2: Total Two-Stage Latency | Re-Ranking Latency Overhead Ratio |
+| Test ID | Query Category | Pipeline 1 (Dense Baseline) | Stage 2 (Cross-Encoder 10 Pairs) | Pipeline 2 (Total Retrieval) | Overhead Ratio |
 | :---: | :--- | :---: | :---: | :---: | :---: |
-| **TEST_01** | Exceptions & Corner Cases | 9.80 ms | 17.99 ms | 27.79 ms | **2.83x** |
-| **TEST_02** | Negation & Constraints | 9.91 ms | 21.02 ms | 30.93 ms | **3.12x** |
-| **TEST_03** | Keyword Trap / Distractor | 8.81 ms | 19.03 ms | 27.84 ms | **3.16x** |
-| **TEST_04** | Buried Penalty Clause | 9.53 ms | 19.42 ms | 28.95 ms | **3.04x** |
-| **AVERAGE** | **System Mean Latency** | **9.51 ms** | **19.37 ms** | **28.88 ms** | **3.04x** |
+| **TEST_01** | Exceptions & Corner Cases | 9.78 ms | 122.83 ms | 132.61 ms | 13.56× |
+| **TEST_02** | Negation & Constraints | 9.36 ms | 140.54 ms | 149.90 ms | 16.01× |
+| **TEST_03** | Control: Ground Transport | 9.33 ms | 122.39 ms | 131.72 ms | 14.12× |
+| **TEST_04** | Control: Admin Penalty | 9.47 ms | 126.31 ms | 135.78 ms | 14.34× |
+| **MEAN** | **System Average** | **9.49 ms** | **128.02 ms** | **137.50 ms** | **14.51×** |
 
-![Comparative Latency Profiling](latency_comparison.png)
+![Latency Comparison](latency_comparison.png)
 
-### Observations on Latency Trade-Off:
-1. **Dense Retrieval (Pipeline 1):** Takes an average of **9.51 ms**, consisting of query embedding generation (~8 ms on GPU) and dot product vector search (~0.5 ms).
-2. **Re-Ranking (Pipeline 2):** Adds an average overhead of **19.37 ms** to score the 10 candidate pairs jointly through the 6-layer MiniLM transformer.
-3. **Total Overhead:** Pipeline 2 is **~3.0x slower** than Pipeline 1 (28.88 ms vs. 9.51 ms). However, in real-world human-facing applications, an end-to-end retrieval latency under **30 ms** is imperceptible to users (well below the 100 ms threshold for instantaneous response), while completely eliminating catastrophic hallucinations and missed policy exceptions.
+### Latency Trade-Off Discussion
+
+1. **Pipeline 1 (Dense Baseline):** Executes in **~9.5 ms** on CPU (query embedding generation takes ~9.0 ms, while cosine dot product across 30 chunks takes <0.5 ms).
+2. **Stage 2 (Cross-Encoder Overhead):** Adds an average of **~128.0 ms** to evaluate joint self-attention across the 10 candidate pairs (~12.8 ms per pair on CPU), bringing total retrieval latency to **~137.5 ms**.
+3. **Interactive SLA Feasibility:** In human-computer interaction, latencies below 100–200 ms are generally perceived as responsive. While ~138 ms on CPU is acceptable for interactive queries, deploying the Cross-Encoder on GPU with batching drops Stage 2 latency from ~128 ms down to ~15–25 ms, achieving total retrieval well under 35 ms.
 
 ---
 
-## 4. Scaling Question: Why Not Run a Cross-Encoder Across the Entire Corpus?
+## 4. Scaling Question: Why Not Run a Cross-Encoder Over the Whole Collection?
 
-A student encountering the superior accuracy of Cross-Encoders might naturally ask:  
-*"If Cross-Encoders are so much better at capturing nuance and avoiding traps, why don't we simply score all document chunks with a Cross-Encoder from the very start and discard Bi-Encoders entirely?"*
+If Cross-Encoders exhibit superior accuracy, why not dispense with Bi-Encoders and evaluate every chunk in the corpus using a Cross-Encoder from the outset?
 
-### 1. The Mathematical Explosion of Computational Complexity
-In a Cross-Encoder, the query and document chunk are concatenated and fed jointly through self-attention layers:
-* Self-attention scales quadratically with sequence length: $O(L^2)$ where $L = |q| + |c|$.
-* A single Cross-Encoder forward pass on a 256-token sequence takes approximately **2.0 milliseconds** on a high-end GPU.
-* If an enterprise corpus contains **$N = 1,000,000$ document chunks**:
-  $$\text{Query Latency} = 1,000,000 \times 2.0 \text{ ms} = 2,000,000 \text{ ms} = 2,000 \text{ seconds} \approx \mathbf{33.3 \text{ minutes per query!}}$$
-* Serving just 10 concurrent user queries would require thousands of high-cost enterprise GPUs running at 100% capacity.
+### 1. Quadratic Token-Level Computational Complexity
+In a Cross-Encoder, the sequence length is $L = |q| + |c|$. Multi-head self-attention scales quadratically with respect to sequence length: $O(L^2)$ operations per layer. Scoring a corpus of $N$ chunks requires $N$ independent forward passes through the transformer:
+* **Measured CPU Scaling:** Based on our measured CPU runtime of $\tau \approx 12.8\text{ ms}$ per candidate pair, evaluating a medium corporate corpus of $N = 1,000,000$ chunks would require:
+  $$T_{\text{CPU}} = 1,000,000 \times 12.8\text{ ms} = 12,800\text{ seconds} \approx \mathbf{3.5\text{ hours per query!}}$$
+* **GPU Server Estimate:** Even assuming high-end GPU hardware executing a forward pass in $\tau \approx 2.0\text{ ms}$:
+  $$T_{\text{GPU}} = 1,000,000 \times 2.0\text{ ms} = 2,000\text{ seconds} \approx \mathbf{33.3\text{ minutes per query!}}$$
+Under any concurrent user traffic, exhaustive Cross-Encoder scoring is computationally infeasible.
 
-### 2. Impossibility of Vector Indexing & Precomputation
-* **Bi-Encoders decouple document representations from query representations:**
-  $$\vec{v}_i = \text{Encoder}(c_i) \quad \text{(computed once at ingestion time)}$$
-  All million document vectors can be precomputed and organized into hierarchical graph structures (HNSW in FAISS/Pinecone/Milvus). Searching a query vector against 1,000,000 indexed chunks takes only **5 milliseconds** using sub-linear approximate nearest neighbor search ($O(\log N)$).
-* **Cross-Encoders cannot be precomputed:**
-  $$S(q, c_i) = \text{Model}([q; c_i])$$
-  Because the score depends on joint attention between query tokens and chunk tokens, **no offline vector database can ever be built**. Every query would require an exhaustive brute-force pass through every single chunk in the database.
+### 2. Impossibility of Offline Indexing and Precomputation
+In a Bi-Encoder system, document representations $\vec{v}_i = \text{Encoder}(c_i)$ are static and completely decoupled from the runtime query. This enables:
+* **Offline Precomputation:** All $N$ embeddings can be computed once offline.
+* **Sub-linear Search:** Embeddings are indexed into Approximate Nearest Neighbor (ANN) data structures (e.g., HNSW graphs or IVF clusters in FAISS). At runtime, searching 1,000,000 chunks requires exploring only a small fraction of the graph ($O(d \cdot \log N)$), completing in **5 to 10 milliseconds**.
 
-### 3. The Power of the Two-Stage Funnel
-The Two-Stage Retrieval architecture resolves this dilemma by pairing both models in a high-efficiency funnel:
-* **Stage 1 (Bi-Encoder):** Casts a wide net. Filters the entire database from **1,000,000 chunks down to 10 candidates in 5 ms**.
-* **Stage 2 (Cross-Encoder):** Runs precision joint self-attention on only those **10 candidates in 15 ms**.
-* **Total End-to-End Latency:** **$5\text{ ms} + 15\text{ ms} = 20\text{ ms}$**.
+In contrast, the Cross-Encoder score $S(q, c_i) = \mathcal{M}([q; c_i])$ requires both inputs simultaneously. Because the score cannot be factored into independent document vectors, **no precomputed vector index can ever be built**. An exhaustive linear scan $O(N)$ is unavoidable.
 
-This delivers the **retrieval quality of a Cross-Encoder at the scale and speed of a Bi-Encoder**.
+### 3. The Two-Stage Architectural Necessity
+The two-stage retrieval pipeline resolves this computational bottleneck by functioning as a progressive filtering funnel:
+$$\text{Total Latency} = \underbrace{T_{\text{Bi-Encoder}}(1,000,000 \rightarrow 10)}_{\sim 5-10\text{ ms (ANN)}} + \underbrace{T_{\text{Cross-Encoder}}(10\text{ pairs})}_{\sim 15-25\text{ ms (GPU) / } 128\text{ ms (CPU)}} \approx \mathbf{25-138\text{ ms}}$$
+
+Stage 1 operates as a high-recall, sub-linear filter that discards 99.999% of irrelevant chunks in milliseconds. Stage 2 then applies deep, token-level cross-attention only to the top 10 candidates, eliminating failure modes while preserving real-time response times.

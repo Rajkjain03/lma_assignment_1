@@ -27,35 +27,39 @@ This repository contains the complete implementation, stress-testing evaluation,
 ## Key Findings & Results
 
 ### 1. Qualitative Rank Shifts (The Power of Re-Ranking)
-When evaluating queries with subtle qualifiers, exceptions, and negations, dense retrieval (Bi-Encoder) suffered from informational bottlenecks and buried critical clauses outside the Top 3 candidates. Cross-Encoder re-ranking restored accuracy by promoting these buried clauses to the top:
+When evaluating queries with subtle qualifiers, exceptions, and negations, dense retrieval (Bi-Encoder) suffered from informational bottlenecks and buried critical clauses outside the top ranking. Cross-Encoder re-ranking restored accuracy by promoting these clauses to the top:
 
 ```
 [TEST_01: Exceptions & Corner Cases]
 Query: "Can staff fly in premium cabins for international client negotiations?"
   • Critical Section: Section 2.4 (Long-Haul International Travel Exception Clause)
-  • Baseline Dense Rank:   Rank #4 (BURIED outside Top 3!)
-  • Re-Ranked Rank:        Rank #1 (PROMOTED by +3 ranks!)
-  • Baseline LLM (Ans 1):  Erroneously claimed all travel must be economy.
-  • Re-Ranked LLM (Ans 2): Accurately stated Business Class is permitted for flights >6h with client presentation.
+  • Baseline Dense Rank:   Rank #3 (Cosine: 0.4039)
+  • Re-Ranked Rank:        Rank #1 (Cross-Score: +0.4351) [PROMOTED by +2 ranks]
+  • Baseline LLM (Ans 1):  Stated approval required but omitted flight duration thresholds (>8h, or >6h with client presentation within 12h).
+  • Re-Ranked LLM (Ans 2): Accurately specified the exact flight duration thresholds and 10-day approval timeline.
 
 [TEST_02: Negation & Constraints]
 Query: "What items are not covered on expense claims for client business meals?"
   • Critical Section: Section 5.3 (Prohibited Entertainment Items and Alcohol Limits)
-  • Baseline Dense Rank:   Rank #4 (BURIED outside Top 3!)
-  • Re-Ranked Rank:        Rank #2 (PROMOTED by +2 ranks!)
-  • Baseline LLM (Ans 1):  Omitted all alcohol limits and nightclub restrictions.
-  • Re-Ranked LLM (Ans 2): Accurately stated the 1-drink cap, 100% solo alcohol ban, and nightclub prohibitions.
+  • Baseline Dense Rank:   Rank #3 (Cosine: 0.4615, behind Section 3.2 Hotel Incidentals at #2)
+  • Re-Ranked Rank:        Rank #2 (Cross-Score: +1.1171) [PROMOTED by +1 rank]
+  • Baseline LLM (Ans 1):  Hallucinated that hotel amenities (in-room movies, mini-bar, laundry <5 days, spa, gym fees) applied to business meals!
+  • Re-Ranked LLM (Ans 2): Accurately detailed the 1-drink alcohol cap, prohibitions on adult venues/nightclub bottle fees, and tobacco/gambling bans.
+
+[TEST_03 & TEST_04: Control Queries]
+  • TEST_03 (Ground Transport): Section 4.4 remained at Rank #2 in both pipelines (+0 shift).
+  • TEST_04 (Administrative Penalty): Section 8.5 remained at Rank #1 in both pipelines (+0 shift).
 ```
 
-### 2. Empirical Latency Profiling (10-Iteration Benchmark)
+### 2. Empirical Latency Profiling (10-Warmed Iteration CPU Benchmark)
 
 | Test ID | Failure Mode Category | Pipeline 1 (Dense Baseline) | Stage 2 (Cross-Encoder 10 Pairs) | Pipeline 2 Total | Overhead Ratio |
 | :---: | :--- | :---: | :---: | :---: | :---: |
-| **TEST_01** | Exceptions & Corner Cases | 9.80 ms | 17.99 ms | 27.79 ms | 2.83x |
-| **TEST_02** | Negation & Constraints | 9.91 ms | 21.02 ms | 30.93 ms | 3.12x |
-| **TEST_03** | Keyword Trap / Distractor | 8.81 ms | 19.03 ms | 27.84 ms | 3.16x |
-| **TEST_04** | Buried Penalty Clause | 9.53 ms | 19.42 ms | 28.95 ms | 3.04x |
-| **MEAN** | **System Average** | **9.51 ms** | **19.37 ms** | **28.88 ms** | **3.04x** |
+| **TEST_01** | Exceptions & Corner Cases | 9.78 ms | 122.83 ms | 132.61 ms | 13.56x |
+| **TEST_02** | Negation & Constraints | 9.36 ms | 140.54 ms | 149.90 ms | 16.01x |
+| **TEST_03** | Control: Ground Transport | 9.33 ms | 122.39 ms | 131.72 ms | 14.12x |
+| **TEST_04** | Control: Admin Penalty | 9.47 ms | 126.31 ms | 135.78 ms | 14.34x |
+| **MEAN** | **System Average** | **9.49 ms** | **128.02 ms** | **137.50 ms** | **14.51x** |
 
 ---
 
