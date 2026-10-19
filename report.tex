@@ -1,6 +1,6 @@
-\documentclass[10pt,a4paper]{article}
+\documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
-\usepackage[top=0.50in, bottom=0.50in, left=0.62in, right=0.62in]{geometry}
+\usepackage[top=0.48in, bottom=0.48in, left=0.60in, right=0.60in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -12,17 +12,17 @@
 
 \titleformat{\section}{\large\bfseries\color{primaryblue}}{\thesection}{0.5em}{}[\vspace{-0.3em}\rule{\linewidth}{0.4pt}]
 \titleformat{\subsection}{\normalsize\bfseries\color{primaryblue}}{\thesubsection}{0.5em}{}
-\titlespacing*{\section}{0pt}{4pt}{2pt}
-\titlespacing*{\subsection}{0pt}{3pt}{1pt}
+\titlespacing*{\section}{0pt}{8pt}{3pt}
+\titlespacing*{\subsection}{0pt}{6pt}{2pt}
 
-\setlength{\parskip}{1.5pt}
+\setlength{\parskip}{2.8pt}
 \setlength{\parindent}{0pt}
 
 \newenvironment{answerquote}{%
   \begin{list}{}{%
-    \setlength{\leftmargin}{0.8em}%
-    \setlength{\rightmargin}{0.8em}%
-    \setlength{\topsep}{0.5pt}%
+    \setlength{\leftmargin}{1.0em}%
+    \setlength{\rightmargin}{1.0em}%
+    \setlength{\topsep}{2pt}%
     \setlength{\partopsep}{0pt}%
     \setlength{\parsep}{0pt}%
     \setlength{\itemsep}{0pt}%
@@ -54,14 +54,14 @@
 
 % Title Block
 \begin{center}
-    {\Large \textbf{RAG Assignment 1: Dense Baseline vs. Cross-Encoder Re-Ranking}}\\[0.2ex]
-    {\normalsize \textbf{Author:} Raj K. Jain \quad$\vert$\quad \textbf{Roll No:} 2025201036 \quad$\vert$\quad \textbf{Course:} LMA-2026}\\[0.2ex]
+    {\Large \textbf{RAG Assignment 1: Dense Baseline vs. Cross-Encoder Re-Ranking}}\\[0.3ex]
+    {\normalsize \textbf{Author:} Raj K. Jain \quad$\vert$\quad \textbf{Roll No:} 2025201036 \quad$\vert$\quad \textbf{Course:} LMA-2026}\\[0.3ex]
     \textbf{GitHub Repository:} \url{https://github.com/Rajkjain03/lma_assignment_1}
 \end{center}
 
-\vspace{-0.8em}
+\vspace{-0.7em}
 \noindent\rule{\linewidth}{0.5pt}
-\vspace{0.1em}
+\vspace{0.2em}
 
 \section{Architecture Comparison: Bi-Encoder vs. Cross-Encoder}
 
@@ -85,7 +85,7 @@ To evaluate retrieval behavior, I tested six queries across distinct failure cat
 \begin{table}[htbp]
 \centering
 \small
-\renewcommand{\arraystretch}{0.92}
+\renewcommand{\arraystretch}{1.15}
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{cllccc}
 \toprule
@@ -100,19 +100,16 @@ To evaluate retrieval behavior, I tested six queries across distinct failure cat
 \bottomrule
 \end{tabular}%
 }
-\vspace{-0.2em}
+\vspace{0.2em}
 {\footnotesize \textit{*Note: Bi-Encoder scores are cosine similarities in $[-1, 1]$; Cross-Encoder scores are unbounded classification logits $(-\infty, +\infty)$. All values from live notebook run.}}
-\vspace{-0.4em}
 \caption{Retrieval rank shifts across test queries (Top 3 context cutoff).}
 \label{tab:rank_shifts}
 \end{table}
 
 \begin{figure}[htbp]
 \centering
-\vspace{-0.4em}
-\includegraphics[width=0.42\linewidth]{rank_shifts_comparison.png}
-\vspace{-0.4em}
-\caption{Qualitative rank shifts: Bi-Encoder ranks (red) vs. Re-ranked Cross-Encoder ranks (green).}
+\includegraphics[width=0.64\linewidth]{rank_shifts_comparison.png}
+\caption{Qualitative rank shifts: Bi-Encoder ranks (red) vs. Re-ranked Cross-Encoder ranks (green). Dotted red line denotes the Top-3 LLM prompt context boundary.}
 \label{fig:rank_shifts}
 \end{figure}
 
@@ -174,8 +171,8 @@ I benchmarked both retrieval pipelines over \textbf{10 warmed iterations} (follo
 \begin{table}[htbp]
 \centering
 \small
-\renewcommand{\arraystretch}{0.92}
-\resizebox{0.92\linewidth}{!}{%
+\renewcommand{\arraystretch}{1.15}
+\resizebox{0.95\linewidth}{!}{%
 \begin{tabular}{lcccc}
 \toprule
 \textbf{Test Query Category} & \textbf{P1 Baseline (Bi-Encoder)} & \textbf{Stage 2 (Cross-Encoder 10 Pairs)} & \textbf{P2 Total Latency} & \textbf{P2/P1 Overhead Ratio} \\
@@ -191,17 +188,14 @@ I benchmarked both retrieval pipelines over \textbf{10 warmed iterations} (follo
 \bottomrule
 \end{tabular}%
 }
-\vspace{-0.3em}
 \caption{Empirical retrieval runtime profiling across 10 warmed iterations on local CPU.}
 \label{tab:latency}
 \end{table}
 
 \begin{figure}[htbp]
 \centering
-\vspace{-0.4em}
-\includegraphics[width=0.40\linewidth]{latency_comparison.png}
-\vspace{-0.4em}
-\caption{Empirical retrieval latency breakdown across 10 warmed iterations on local CPU.}
+\includegraphics[width=0.58\linewidth]{latency_comparison.png}
+\caption{Empirical retrieval latency breakdown across 10 warmed iterations on local CPU (Baseline in blue, Cross-Encoder stage in orange).}
 \label{fig:latency}
 \end{figure}
 
@@ -218,5 +212,8 @@ A single-stage Cross-Encoder must compute full self-attention across the concate
 Furthermore, offline vector pre-indexing is fundamentally impossible for a Cross-Encoder. Because the model requires both the query and candidate chunk simultaneously to compute cross-attention, no static passage embeddings can be precomputed or stored in Approximate Nearest Neighbor (ANN) index structures (such as HNSW in FAISS). Every query would necessitate an exhaustive linear scan over all $N$ passages.
 
 The two-stage pipeline solves this fundamental scaling bottleneck: the fast Bi-Encoder prunes the candidate space in milliseconds ($\approx 10$\,ms), allowing the computationally intensive Cross-Encoder to evaluate only the top 10 candidates. This keeps end-to-end interactive search well within acceptable bounds ($\approx 146$\,ms) while successfully surfacing subtle exception clauses, demoting distractors, and preventing hallucinations caused by omitted context.
+
+\section{Conclusion}
+This study demonstrated that dense Bi-Encoder retrieval frequently stumbles on subtle conditions, negations, and distractors, leading small local LLMs to fabricate answers or lose critical thresholds. Adding a Cross-Encoder re-ranking stage resolved these failures by promoting relevant clauses into the Top 3 context window. While re-ranking introduces a $13.95\times$ latency overhead, the two-stage pipeline keeps interactive search times well within acceptable bounds ($\approx 146$\,ms), providing the optimal balance of recall, precision, and latency.
 
 \end{document}
