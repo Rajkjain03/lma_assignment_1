@@ -279,38 +279,54 @@ def generate_answer(query: str, context_chunks: list):
     cells.append(nbf.v4.new_markdown_cell("""---
 ## Step 3: Failure Mode Analysis & Stress Testing
 
-We evaluate four test queries covering:
-1. **TEST_01 (Genuine Failure - Exceptions & Corner Cases):** Targets the long-haul business class exception (Section 2.4). In the baseline, general coach rules (Section 2.1) dominate the vector space, burying the exception clause.
-2. **TEST_02 (Genuine Failure - Negation & Constraints):** Targets non-covered items for client meals (Section 5.3). In the baseline, positive hosting terms (Section 5.1) and hotel incidentals (Section 3.2) outrank the meal restrictions.
-3. **TEST_03 (Control Query - Ground Transport):** Evaluates rideshare limits (Section 4.1) vs. limousine prohibition (Section 4.4). Serves as a control case where Section 4.4 is preserved in the Top 2.
-4. **TEST_04 (Control Query - Administrative Penalty):** Evaluates late expense report forfeiture (Section 8.5). High lexical and semantic overlap ensures Section 8.5 is ranked at #1 in both pipelines.
+We evaluate six test queries covering:
+1. **TEST_01 (Exceptions & Distractor Context):** Targets long-haul business class exception (Section 2.4). Baseline retrieves it at Rank #3, but the 0.5B model misses flight duration thresholds. Cross-Encoder promotes Section 2.4 to Rank #1.
+2. **TEST_02 (Negations & Distractor Chunk):** Targets non-covered meal expenses (Section 5.3). Section 3.2 ranks at #2 above Section 5.3 (#3); the 0.5B LLM is misled by this distractor into listing hotel incidentals. Cross-Encoder promotes Section 5.3 ahead of the distractor into Rank #2.
+3. **TEST_03 (Buried Clause: Hotel Laundry):** Targets hotel laundry limits (Section 3.2). Dense search buries Section 3.2 at **Rank #5** (outside Top 3 context). The baseline LLM hallucinates a rule. Cross-Encoder promotes it to **Rank #1**.
+4. **TEST_04 (Buried Clause: Ancillary Fees):** Targets baggage/seat selection fees (Section 2.3). Dense search buries Section 2.3 at **Rank #8**. Cross-Encoder promotes it to **Rank #2**.
+5. **TEST_05 ([CONTROL] Ground Transport):** Evaluates rideshare limits (Section 4.1) vs. limousine prohibition (Section 4.4). Stably held at Rank #2 in both pipelines.
+6. **TEST_06 ([CONTROL] Administrative Penalty):** Evaluates late expense report forfeiture (Section 8.5). Unambiguous semantic overlap places Section 8.5 at Rank #1 in both pipelines.
 """))
 
     cells.append(nbf.v4.new_code_cell("""TEST_SUITE = [
     {
         "test_id": "TEST_01",
-        "category": "Exceptions & Corner Cases",
+        "category": "Exceptions & Distractors",
         "query": "Can staff fly in premium cabins for international client negotiations?",
         "critical_keyword": "2.4",
         "is_genuine_failure": True
     },
     {
         "test_id": "TEST_02",
-        "category": "Negation & Constraints",
+        "category": "Negation & Distractor Chunk",
         "query": "What items are not covered on expense claims for client business meals?",
         "critical_keyword": "5.3",
         "is_genuine_failure": True
     },
     {
         "test_id": "TEST_03",
+        "category": "Buried Clause: Hotel Laundry",
+        "query": "Under what trip length can travelers expense laundry and dry cleaning?",
+        "critical_keyword": "3.2",
+        "is_genuine_failure": True
+    },
+    {
+        "test_id": "TEST_04",
+        "category": "Buried Clause: Ancillary Fees",
+        "query": "Are flight cancellation insurance and seat selection fees reimbursable?",
+        "critical_keyword": "2.3",
+        "is_genuine_failure": True
+    },
+    {
+        "test_id": "TEST_05",
         "category": "Control: Ground Transport",
         "query": "Can I book an executive airport transfer using Uber or ridesharing apps?",
         "critical_keyword": "4.4",
         "is_genuine_failure": False
     },
     {
-        "test_id": "TEST_04",
-        "category": "Control: Administrative Penalty",
+        "test_id": "TEST_06",
+        "category": "Control: Admin Penalty",
         "query": "What disciplinary action occurs if expense claims are submitted more than a month late?",
         "critical_keyword": "8.5",
         "is_genuine_failure": False
@@ -376,11 +392,11 @@ for tc in TEST_SUITE:
 """))
 
     cells.append(nbf.v4.new_markdown_cell("""### Candidate Retrieval Tables with Actual Scores
-Below we display the exact candidate ranking tables with cosine similarity scores and cross-encoder logits for our failure test cases.
+Below we display candidate ranking tables with cosine similarity scores and cross-encoder logits for our test cases.
 """))
 
-    cells.append(nbf.v4.new_code_cell("""# Display Detailed Candidates for TEST_01 and TEST_02
-for rec in experiment_records[:2]:
+    cells.append(nbf.v4.new_code_cell("""# Display Detailed Candidates for TEST_01, TEST_02, and TEST_03
+for rec in experiment_records[:3]:
     print(f"\\nDetailed Candidate Rankings for {rec['test_id']} ({rec['category']}):")
     df_p1 = pd.DataFrame([
         {"Rank": c["initial_rank"], "Score": f"{c['cosine_score']:.4f}", "Title": c["section_title"], "Page": c["page"]}
@@ -448,7 +464,7 @@ latency_df
 The stacked bar chart illustrates the runtime composition of both retrieval pipelines.
 """))
 
-    cells.append(nbf.v4.new_code_cell("""fig, ax = plt.subplots(figsize=(10, 5), dpi=140)
+    cells.append(nbf.v4.new_code_cell("""fig, ax = plt.subplots(figsize=(10, 5.2), dpi=140)
 
 test_names = [f\"{r['Test ID']}\\n{r['Category'].split(':')[0]}\" for r in latency_records]
 p1_bars = [r["P1 Baseline (ms)"] for r in latency_records]
@@ -463,12 +479,15 @@ ax.set_ylabel('Execution Runtime (milliseconds)', fontsize=11, fontweight='bold'
 ax.set_title('Empirical Retrieval Latency Breakdown across 10 Iterations (CPU Benchmark)', fontsize=12, fontweight='bold', pad=12)
 ax.set_xticks(x_pos)
 ax.set_xticklabels(test_names, fontsize=9)
-ax.legend(loc='upper right', framealpha=0.95)
+
+max_val = max(p1_bars[i] + ce_bars[i] for i in range(len(test_names)))
+ax.set_ylim(0, max_val * 1.35)
+ax.legend(loc='upper left', framealpha=0.95, fontsize=9.5)
 ax.grid(axis='y', linestyle=':', alpha=0.6)
 
 for i in range(len(test_names)):
     tot = p1_bars[i] + ce_bars[i]
-    ax.text(x_pos[i], tot + 2.5, f"{tot:.1f} ms\\n({ce_bars[i]:.1f} ms CE)", ha='center', va='bottom', fontsize=8.5, fontweight='bold')
+    ax.text(x_pos[i], tot + 2.5, f"{tot:.1f} ms", ha='center', va='bottom', fontsize=8.5, fontweight='bold')
 
 plt.tight_layout()
 plt.savefig("latency_comparison.png", dpi=180)
@@ -479,7 +498,7 @@ plt.show()
 This chart is dynamically generated from `experiment_records`. It clearly separates genuine retrieval failure promotions from stable control queries.
 """))
 
-    cells.append(nbf.v4.new_code_cell("""fig, ax = plt.subplots(figsize=(10, 4.8), dpi=140)
+    cells.append(nbf.v4.new_code_cell("""fig, ax = plt.subplots(figsize=(10, 5.2), dpi=140)
 
 labels = [f\"{r['test_id']}: {r['category']}\\n({r['target_section'][:35]}...)\" for r in experiment_records]
 b_ranks = [r["baseline_rank"] for r in experiment_records]
@@ -497,7 +516,7 @@ ax.set_title('Qualitative Retrieval Rank Shifts: Baseline vs. Re-Ranking', fonts
 ax.set_yticks(y)
 ax.set_yticklabels(labels, fontsize=8.5)
 ax.invert_yaxis()
-ax.legend(loc='lower right', framealpha=0.95)
+ax.legend(loc='lower right', framealpha=0.95, fontsize=9)
 ax.grid(axis='x', linestyle=':', alpha=0.6)
 
 for i, rect in enumerate(rects1):
@@ -524,57 +543,48 @@ plt.show()
 
 ### 1. Architecture Comparison
 * **Bi-Encoder (`all-MiniLM-L6-v2`):**
-  Passes query and passage through independent transformer encoders, compressing variable-length text into a single 384-dimensional dense vector $\\vec{v} \\in \\mathbb{R}^{384}$ via mean pooling. Relevance is calculated via geometric cosine similarity $\\cos(\\vec{u}, \\vec{v})$.
-  * *Advantage:* Offline indexability. All document vectors can be precomputed and stored in Approximate Nearest Neighbor (ANN) index structures (such as HNSW or IVF in FAISS), achieving sub-linear $O(d \\cdot \\log N)$ search in milliseconds.
+  Passes query and passage through independent transformer encoders, compressing variable-length text into a single 384-dimensional dense vector via mean pooling. Relevance is calculated via geometric cosine similarity.
+  * *Advantage:* Offline indexability. All document vectors can be precomputed and stored in Approximate Nearest Neighbor (ANN) index structures (such as HNSW in FAISS), achieving sub-linear search in milliseconds.
   * *Disadvantage:* Token interaction is zero. Compressing an entire paragraph into 384 numbers creates an informational bottleneck, obscuring modifiers, negative constraints, and conditional clauses.
 * **Cross-Encoder (`ms-marco-MiniLM-L-6-v2`):**
   Concatenates the query and passage into a single sequence $[\\text{CLS}] \\circ q \\circ [\\text{SEP}] \\circ c \\circ [\\text{SEP}]$ and passes it through all transformer layers.
-  * *Advantage:* Every query token attends directly to every document token via bidirectional multi-head cross-attention. This allows the model to capture subtle syntactic nuances, conditional exceptions, and negation constraints.
+  * *Advantage:* Every query token attends directly to every document token via bidirectional cross-attention. This allows the model to capture subtle syntactic nuances, conditional exceptions, and negation constraints.
   * *Disadvantage:* Offline vector precomputation is fundamentally impossible because the input requires both the query and document to be known simultaneously. Scoring $N$ documents requires $N$ full forward passes through the network.
 
 ---
 
 ### 2. Qualitative & Rank Shift Analysis
-* **Case Study 1: Exceptions & Corner Cases (TEST_01)**
+* **Case Study 1: Exceptions & Distractor Context (TEST_01)**
   * *Query:* *"Can staff fly in premium cabins for international client negotiations?"*
-  * *Rank Shift:* Section 2.4 (*Long-Haul International Travel Exception Clause*) was promoted from **Rank #3 to Rank #1** (+2 shift, score 0.4039 $\\rightarrow$ +0.4351).
-  * *LLM Answer Comparison:*
-    * **Baseline (Answer 1):** The model stated that employees need written approval from the VP and CFO, but omitted the flight duration criteria (must exceed 8 hours, or 6 hours with a client presentation within 12 hours).
-    * **Re-Ranked (Answer 2):** Because Section 2.4 was promoted to Rank #1, the model provided complete and accurate guidance: continuous non-stop flights exceeding 8 hours (or 6 hours with a presentation within 12 hours) qualify for Business Class with VP and CFO sign-off at least 10 days in advance.
-* **Case Study 2: Negation & Constraints (TEST_02)**
+  * *Rank Shift:* Section 2.4 (*Long-Haul International Travel Exception Clause*) placed at Rank #3 (inside Top 3) in the baseline and was promoted to **Rank #1** (+2 shift, score 0.4039 $\\rightarrow$ +0.4351).
+  * *LLM Generation Nuance:* The baseline answer said "Yes", which is not wrong, but missed the essential flight duration thresholds ($>8$ hours, or $>6$ hours for negotiations). Because our local generator is an ultra-compact 0.5B model, having Section 2.1 (*Coach Mandate*) at Rank #1 caused it to focus on the general rule and omit details from the lower-ranked chunk. A larger frontier model might have handled this baseline context fine. Promoting Section 2.4 to Rank #1 put the specific thresholds front and center.
+* **Case Study 2: Negation & Distractor Chunk (TEST_02)**
   * *Query:* *"What items are not covered on expense claims for client business meals?"*
-  * *Rank Shift:* Section 5.3 (*Prohibited Entertainment Items and Alcohol Consumption Limits*) was promoted from **Rank #3 to Rank #2** (+1 shift, score 0.4615 $\\rightarrow$ +1.1171).
-  * *LLM Answer Comparison:*
-    * **Baseline (Answer 1 - Hallucination):** The Bi-Encoder placed Section 3.2 (*Prohibited Hotel Incidentals*) ahead of Section 5.3. Consequently, the LLM falsely concluded that hotel amenities (in-room movies, mini-bar, laundry for trips <5 days, spa, gym fees) were the items prohibited for client business meals!
-    * **Re-Ranked (Answer 2 - Corrected):** Section 5.3 was surfaced into the Top 2 context, allowing the LLM to correctly state the 1-drink alcohol cap, prohibitions on adult entertainment / nightclub bottle service, and tobacco/gambling bans.
+  * *Rank Shift:* Section 5.3 placed at Rank #3 in the baseline, but Section 3.2 (*Hotel Incidentals*) sat at Rank #2 directly above it. Cross-Encoder promoted Section 5.3 to **Rank #2** (+1 shift, score 0.4615 $\\rightarrow$ +1.1171).
+  * *LLM Generation Nuance:* The baseline LLM listed hotel room incidentals (mini-bar, movies, laundry, gym fees) instead of meal exclusions. This was not an ungrounded hallucination; the model was misled by a higher-ranked distractor (Section 3.2). Re-ranking pushed Section 5.3 ahead of the distractor, fixing the context ordering.
+* **Case Studies 3 & 4: Buried Clause Omission Failures (TEST_03 & TEST_04)**
+  * In **TEST_03** (*"Under what trip length can travelers expense laundry and dry cleaning?"*), Section 3.2 was buried at **Rank #5** by the Bi-Encoder, completely excluded from the Top 3 context. The baseline LLM hallucinated a 30-day rule. The Cross-Encoder promoted Section 3.2 to **Rank #1**, providing the exact "shorter than 5 days" condition.
+  * In **TEST_04** (*"Are flight cancellation insurance and seat selection fees reimbursable?"*), Section 2.3 was buried at **Rank #8** due to vocabulary mismatch. The Cross-Encoder promoted it to **Rank #2**, rescuing it into the Top 3 prompt context.
+* **Control Cases (TEST_05 & TEST_06):** In both queries, the target sections remained stably at Rank #2 and Rank #1 across both pipelines, confirming that the Cross-Encoder does not destabilize unambiguous queries.
 
 ---
 
 ### 3. Latency Profiling Discussion
 On our local CPU benchmark (averaged over 10 warmed iterations):
-* **Pipeline 1 (Dense Baseline):** $\\approx 9.5\\text{ ms}$ (Query encoding $\\approx 9.0\\text{ ms}$ + cosine similarity vector scan $\\approx 0.5\\text{ ms}$).
-* **Stage 2 (Cross-Encoder 10 Pairs):** $\\approx 128.0\\text{ ms}$ (10 joint transformer forward passes on CPU, $\\approx 12.8\\text{ ms}$ per candidate pair).
-* **Pipeline 2 Total:** $\\approx 137.5\\text{ ms}$ (an overhead ratio of $\\approx 14.5\\times$).
+* **Pipeline 1 (Dense Baseline):** $\\approx 10.2\\text{ ms}$ (Query encoding $\\approx 9.7\\text{ ms}$ + cosine dot products $\\approx 0.5\\text{ ms}$).
+* **Stage 2 (Cross-Encoder 10 Pairs):** $\\approx 141.6\\text{ ms}$ (10 joint forward passes on CPU, $\\approx 14.2\\text{ ms}$ per candidate pair).
+* **Pipeline 2 Total:** $\\approx 151.8\\text{ ms}$ (an overhead ratio of $\\approx 14.9\\times$).
 
-*SLA & Production Considerations:* While $\\approx 138\\text{ ms}$ is acceptable for interactive human search (human perceptual immediacy is typically around 100-200 ms), deploying the Cross-Encoder on GPU with batching typically drops Stage 2 latency from $\\approx 128\\text{ ms}$ down to $\\approx 15-25\\text{ ms}$, bringing end-to-end retrieval well under 35 ms.
+*Interactive Feasibility:* A total retrieval time of $\\sim 152\\text{ ms}$ is well within the 200 ms threshold for interactive user search. On a GPU server, batched Cross-Encoder inference is projected to drop to an estimated 15--25 ms total ($\approx 2.0\\text{ ms}$ per pair), bringing total retrieval under 30 ms.
 
 ---
 
 ### 4. Scaling Question: Why Not Run a Cross-Encoder Over the Whole Collection?
 If Cross-Encoders exhibit superior precision, why not evaluate every chunk in the collection using a Cross-Encoder from the outset?
 
-1. **Quadratic Sequence Length Complexity & Linear Scanning:**
-   Evaluating a Cross-Encoder requires joint all-to-all attention with complexity $O(L^2)$ where $L = |q| + |c|$. For a modest corpus of $N = 1,000,000$ chunks:
-   * Based on our measured CPU performance of $\\approx 12.8\\text{ ms}$ per pair, evaluating one query would take:
-     $$1,000,000 \\times 12.8\\text{ ms} = 12,800,000\\text{ ms} \\approx 3.5\\text{ hours per query!}$$
-   * Even assuming high-end enterprise GPU acceleration running at $\\tau \\approx 2.0\\text{ ms}$ per pair:
-     $$1,000,000 \\times 2.0\\text{ ms} = 2,000,000\\text{ ms} = 2,000\\text{ seconds} \\approx 33.3\\text{ minutes per query!}$$
-2. **Impossibility of Offline Indexing:**
-   In a Bi-Encoder, chunk vectors $\\vec{v}_i$ are static and independent of the query. They can be indexed into sub-linear Approximate Nearest Neighbor (ANN) graph structures (e.g., HNSW). At query time, searching 1,000,000 chunks takes only $\\sim 5\\text{ ms}$. Because a Cross-Encoder requires both query and chunk tokens simultaneously, no precomputed index can ever be built.
-3. **The Two-Stage Architectural Necessity:**
-   The two-stage pipeline reconciles scalability with precision:
-   $$\\text{Total Latency} = \\underbrace{T_{\\text{Bi-Encoder}}(1,000,000 \\rightarrow 10)}_{\\sim 5-10\\text{ ms}} + \\underbrace{T_{\\text{Cross-Encoder}}(10\\text{ candidates})}_{\\sim 15-25\\text{ ms (GPU)}} \\approx \\mathbf{25-35\\text{ ms}}$$
-   Stage 1 filters out 99.999% of irrelevant documents, allowing Stage 2 to apply deep cross-attention exclusively to high-probability candidates.
+1. **Quadratic Sequence Complexity & Compute Cost:** A Cross-Encoder must run full bidirectional self-attention across the concatenated sequence length $L = |q| + |c|$ with $\\mathcal{O}(L^2)$ complexity. Scoring an entire corpus of $N = 1,000,000$ chunks requires $N$ complete forward passes. On CPU ($14.2\\text{ ms}$ per pair), one query would take $\\approx 3.9\\text{ hours}$. Even on GPU at an estimated $2.0\\text{ ms}$ per pair, one query would take over 33 minutes. Under interactive user traffic, this is completely infeasible.
+2. **Impossibility of Offline Indexing:** In a Bi-Encoder, chunk vectors $\\vec{v}_i$ are static and independent of future queries, so they can be indexed into sub-linear Approximate Nearest Neighbor graph structures (like HNSW). At query time, searching 1,000,000 chunks takes only $\\sim 5\\text{ ms}$. Because a Cross-Encoder requires both query and chunk tokens simultaneously, no precomputed index can ever be built, forcing an exhaustive $\\mathcal{O}(N)$ scan over every passage.
+3. **The Two-Stage Architectural Necessity:** The two-stage funnel combines the strengths of both models: Stage 1 prunes 99.9% of the collection in milliseconds, allowing Stage 2 to spend compute only on the top 10 candidate chunks.
 """))
 
     nb.cells = cells

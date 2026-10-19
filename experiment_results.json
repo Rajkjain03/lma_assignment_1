@@ -7,7 +7,7 @@
   "experiment_records": [
     {
       "test_id": "TEST_01",
-      "category": "Exceptions & Corner Cases",
+      "category": "Exceptions & Distractors",
       "query": "Can staff fly in premium cabins for international client negotiations?",
       "target_section": "2.4 Long-Haul International Travel Exception Clause",
       "target_page": 2,
@@ -51,19 +51,19 @@
           "score": -7.9689
         }
       ],
-      "baseline_latency_ms": 10.25,
-      "rerank_latency_ms": 112.02,
-      "total_p2_latency_ms": 122.27,
+      "baseline_latency_ms": 16.73,
+      "rerank_latency_ms": 130.8,
+      "total_p2_latency_ms": 147.52,
       "answer_1_baseline": "Yes, staff can fly in premium cabins for international client negotiations. However, they need to obtain prior written concurrence from both the Division Vice President and the Chief Financial Officer at least 10 business days before ticketing.",
       "answer_2_reranked": "Yes, staff can fly in premium cabins for international client negotiations under the long-haul international travel exception clause. The policy allows this exception when traveling on continuous non-stop international flights with flight durations exceeding 8 hours or 6 hours if the traveler is scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival. Employees need prior written concurrence from both the Division Vice President and the Chief Financial Officer no later than 10 business days before booking their tickets.",
-      "benchmarked_p1_ms": 9.78,
-      "benchmarked_ce_ms": 122.83,
-      "benchmarked_total_ms": 132.61,
-      "overhead_ratio": 13.56
+      "benchmarked_p1_ms": 10.05,
+      "benchmarked_ce_ms": 129.97,
+      "benchmarked_total_ms": 140.02,
+      "overhead_ratio": 13.94
     },
     {
       "test_id": "TEST_02",
-      "category": "Negation & Constraints",
+      "category": "Negation & Distractor Chunk",
       "query": "What items are not covered on expense claims for client business meals?",
       "target_section": "5.3 Prohibited Entertainment Items and Alcohol Consumption Limits",
       "target_page": 3,
@@ -107,19 +107,131 @@
           "score": -1.5279
         }
       ],
-      "baseline_latency_ms": 9.68,
-      "rerank_latency_ms": 141.97,
-      "total_p2_latency_ms": 151.65,
+      "baseline_latency_ms": 10.72,
+      "rerank_latency_ms": 161.49,
+      "total_p2_latency_ms": 172.21,
       "answer_1_baseline": "Based on the policy context provided, the following items are not covered on expense claims for client business meals:\n\n- In-room video on-demand/movie rentals\n- Mini-bar consumption\n- Laundry service for trips shorter than 5 days\n- Spa services\n- Sauna access\n- Dry cleaning fees\n- Hotel gym or fitness center pass fees\n\nThese items are specifically excluded from the reimbursement of business meal expenses as outlined in the policy.",
       "answer_2_reranked": "Based on the policy context provided, the items that are not covered on expense claims for client business meals are:\n\n(a) Alcoholic beverages exceeding one (1) standard single serving of wine or beer per person during authorized client dinners.\n(b) Adult entertainment venues, nightclub admission or table bottle service fees, social club charges, and gentlemen's club invoices.\n(c) Tobacco, vape products, cannabis, and casino gambling losses.\n(d) Meals or travel for spouses, partners, dependents, or personal companions accompanying the traveler.",
-      "benchmarked_p1_ms": 9.36,
-      "benchmarked_ce_ms": 140.54,
-      "benchmarked_total_ms": 149.9,
-      "overhead_ratio": 16.01
+      "benchmarked_p1_ms": 10.21,
+      "benchmarked_ce_ms": 159.05,
+      "benchmarked_total_ms": 169.26,
+      "overhead_ratio": 16.58
     },
     {
       "test_id": "TEST_03",
-      "category": "Control Case: Ground Transport",
+      "category": "Buried Clause: Hotel Laundry",
+      "query": "Under what trip length can travelers expense laundry and dry cleaning?",
+      "target_section": "3.2 Prohibited Hotel Incidentals and Personal Amenities",
+      "target_page": 2,
+      "is_genuine_failure": true,
+      "baseline_rank": 5,
+      "baseline_cosine_score": 0.36673468351364136,
+      "reranked_rank": 1,
+      "reranked_cross_score": 2.485926866531372,
+      "rank_delta": 4,
+      "p1_top3": [
+        {
+          "title": "8.1 Standard Expense Filing Timelines",
+          "rank": 1,
+          "score": 0.443
+        },
+        {
+          "title": "1.2 Mandatory Pre-Trip Travel Authorization",
+          "rank": 2,
+          "score": 0.4188
+        },
+        {
+          "title": "Policy Overview (Page 1)",
+          "rank": 3,
+          "score": 0.407
+        }
+      ],
+      "p2_top3": [
+        {
+          "title": "3.2 Prohibited Hotel Incidentals and Personal Amenities",
+          "rank": 1,
+          "score": 2.4859
+        },
+        {
+          "title": "2.3 Checked Luggage and Baggage Allowance",
+          "rank": 2,
+          "score": -7.2847
+        },
+        {
+          "title": "Policy Overview (Page 1)",
+          "rank": 3,
+          "score": -7.6482
+        }
+      ],
+      "baseline_latency_ms": 10.63,
+      "rerank_latency_ms": 136.4,
+      "total_p2_latency_ms": 147.03,
+      "answer_1_baseline": "Under the Global Travel, Expense, and Procurement Policy (2026), travelers cannot expense laundry and dry cleaning for trips longer than 30 days.",
+      "answer_2_reranked": "For trips shorter than 5 days, travelers cannot expense laundry and dry cleaning.",
+      "benchmarked_p1_ms": 10.14,
+      "benchmarked_ce_ms": 133.98,
+      "benchmarked_total_ms": 144.13,
+      "overhead_ratio": 14.21
+    },
+    {
+      "test_id": "TEST_04",
+      "category": "Buried Clause: Ancillary Fees",
+      "query": "Are flight cancellation insurance and seat selection fees reimbursable?",
+      "target_section": "2.3 Checked Luggage and Baggage Allowance",
+      "target_page": 1,
+      "is_genuine_failure": true,
+      "baseline_rank": 8,
+      "baseline_cosine_score": 0.3412551283836365,
+      "reranked_rank": 2,
+      "reranked_cross_score": -1.6741493940353394,
+      "rank_delta": 6,
+      "p1_top3": [
+        {
+          "title": "2.5 Flight Cancellations, Disruptions and Refundable Fares",
+          "rank": 1,
+          "score": 0.6202
+        },
+        {
+          "title": "3.3 Lodging Cancellation Deadlines and No-Show Liability",
+          "rank": 2,
+          "score": 0.5459
+        },
+        {
+          "title": "3.2 Prohibited Hotel Incidentals and Personal Amenities",
+          "rank": 3,
+          "score": 0.4569
+        }
+      ],
+      "p2_top3": [
+        {
+          "title": "2.2 Frequent Flyer Upgrades and Miles Redemption",
+          "rank": 1,
+          "score": -1.162
+        },
+        {
+          "title": "2.3 Checked Luggage and Baggage Allowance",
+          "rank": 2,
+          "score": -1.6741
+        },
+        {
+          "title": "2.5 Flight Cancellations, Disruptions and Refundable Fares",
+          "rank": 3,
+          "score": -2.0183
+        }
+      ],
+      "baseline_latency_ms": 10.66,
+      "rerank_latency_ms": 161.81,
+      "total_p2_latency_ms": 172.47,
+      "answer_1_baseline": "No, flight cancellation insurance and seat selection fees are not reimbursable under this policy.",
+      "answer_2_reranked": "No, flight cancellation insurance and seat selection fees are not reimbursable under this policy.",
+      "benchmarked_p1_ms": 10.27,
+      "benchmarked_ce_ms": 158.74,
+      "benchmarked_total_ms": 169.01,
+      "overhead_ratio": 16.46
+    },
+    {
+      "test_id": "TEST_05",
+      "category": "Control: Ground Transport",
       "query": "Can I book an executive airport transfer using Uber or ridesharing apps?",
       "target_section": "4.4 Luxury Chauffeured Vehicles and Limousine Prohibition",
       "target_page": 3,
@@ -163,19 +275,19 @@
           "score": -7.7787
         }
       ],
-      "baseline_latency_ms": 9.75,
-      "rerank_latency_ms": 119.22,
-      "total_p2_latency_ms": 128.96,
+      "baseline_latency_ms": 10.88,
+      "rerank_latency_ms": 144.75,
+      "total_p2_latency_ms": 155.63,
       "answer_1_baseline": "Yes, you can book an executive airport transfer using Uber or ridesharing apps.",
       "answer_2_reranked": "Yes, you can book an executive airport transfer using Uber or ridesharing apps as long as it's done through standard UberX or Lyft Standard rides, which are reimbursable up to $45 per one-way airport transfer without itemized route auditing.",
-      "benchmarked_p1_ms": 9.3,
-      "benchmarked_ce_ms": 114.63,
-      "benchmarked_total_ms": 123.92,
-      "overhead_ratio": 13.33
+      "benchmarked_p1_ms": 10.21,
+      "benchmarked_ce_ms": 132.93,
+      "benchmarked_total_ms": 143.14,
+      "overhead_ratio": 14.02
     },
     {
-      "test_id": "TEST_04",
-      "category": "Control Case: Administrative Penalty",
+      "test_id": "TEST_06",
+      "category": "Control: Admin Penalty",
       "query": "What disciplinary action occurs if expense claims are submitted more than a month late?",
       "target_section": "8.5 Late Submission Forfeiture Clause and Card Revocation Penalties",
       "target_page": 4,
@@ -219,49 +331,65 @@
           "score": -5.7168
         }
       ],
-      "baseline_latency_ms": 9.57,
-      "rerank_latency_ms": 122.6,
-      "total_p2_latency_ms": 132.17,
+      "baseline_latency_ms": 10.7,
+      "rerank_latency_ms": 144.26,
+      "total_p2_latency_ms": 154.97,
       "answer_1_baseline": "If expense claims are submitted more than a month late, employees will face immediate and permanent revocation of their corporate credit card privileges, mandatory referral to People Operations for formal disciplinary action, and suspension of all future travel privileges.",
       "answer_2_reranked": "If expense claims are submitted more than a month late, employees will face immediate and permanent revocation of their corporate credit card privileges, mandatory referral to People Operations for formal disciplinary action, and suspension of all future travel privileges.",
-      "benchmarked_p1_ms": 9.85,
-      "benchmarked_ce_ms": 124.06,
-      "benchmarked_total_ms": 133.91,
-      "overhead_ratio": 13.59
+      "benchmarked_p1_ms": 10.28,
+      "benchmarked_ce_ms": 135.07,
+      "benchmarked_total_ms": 145.35,
+      "overhead_ratio": 14.14
     }
   ],
   "latency_benchmarks": [
     {
       "test_id": "TEST_01",
-      "category": "Exceptions & Corner Cases",
-      "mean_p1_ms": 9.78,
-      "mean_ce_ms": 122.83,
-      "mean_total_ms": 132.61,
-      "ratio": 13.56
+      "category": "Exceptions & Distractors",
+      "mean_p1_ms": 10.05,
+      "mean_ce_ms": 129.97,
+      "mean_total_ms": 140.02,
+      "ratio": 13.94
     },
     {
       "test_id": "TEST_02",
-      "category": "Negation & Constraints",
-      "mean_p1_ms": 9.36,
-      "mean_ce_ms": 140.54,
-      "mean_total_ms": 149.9,
-      "ratio": 16.01
+      "category": "Negation & Distractor Chunk",
+      "mean_p1_ms": 10.21,
+      "mean_ce_ms": 159.05,
+      "mean_total_ms": 169.26,
+      "ratio": 16.58
     },
     {
       "test_id": "TEST_03",
-      "category": "Control Case: Ground Transport",
-      "mean_p1_ms": 9.3,
-      "mean_ce_ms": 114.63,
-      "mean_total_ms": 123.92,
-      "ratio": 13.33
+      "category": "Buried Clause: Hotel Laundry",
+      "mean_p1_ms": 10.14,
+      "mean_ce_ms": 133.98,
+      "mean_total_ms": 144.13,
+      "ratio": 14.21
     },
     {
       "test_id": "TEST_04",
-      "category": "Control Case: Administrative Penalty",
-      "mean_p1_ms": 9.85,
-      "mean_ce_ms": 124.06,
-      "mean_total_ms": 133.91,
-      "ratio": 13.59
+      "category": "Buried Clause: Ancillary Fees",
+      "mean_p1_ms": 10.27,
+      "mean_ce_ms": 158.74,
+      "mean_total_ms": 169.01,
+      "ratio": 16.46
+    },
+    {
+      "test_id": "TEST_05",
+      "category": "Control: Ground Transport",
+      "mean_p1_ms": 10.21,
+      "mean_ce_ms": 132.93,
+      "mean_total_ms": 143.14,
+      "ratio": 14.02
+    },
+    {
+      "test_id": "TEST_06",
+      "category": "Control: Admin Penalty",
+      "mean_p1_ms": 10.28,
+      "mean_ce_ms": 135.07,
+      "mean_total_ms": 145.35,
+      "ratio": 14.14
     }
   ]
 }

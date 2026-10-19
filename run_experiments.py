@@ -161,31 +161,47 @@ def generate_answer(query: str, context_chunks: list):
 test_suite = [
     {
         "id": "TEST_01",
-        "category": "Exceptions & Corner Cases",
+        "category": "Exceptions & Distractors",
         "query": "Can staff fly in premium cabins for international client negotiations?",
         "critical_section_keyword": "2.4",
-        "description": "General coach mandate (2.1) dominates dense search, burying long-haul exception (2.4).",
+        "description": "General coach mandate (2.1) dominates dense search; 0.5B model misses duration threshold without re-ranking.",
         "is_genuine_failure": True
     },
     {
         "id": "TEST_02",
-        "category": "Negation & Constraints",
+        "category": "Negation & Distractor Chunk",
         "query": "What items are not covered on expense claims for client business meals?",
         "critical_section_keyword": "5.3",
-        "description": "Dense search matches positive hosting terms (5.1) and hotel incidentals (3.2), burying meal prohibitions (5.3).",
+        "description": "Dense search pulls lodging amenities (3.2) above meal prohibitions (5.3); 0.5B model is misled by distractor.",
         "is_genuine_failure": True
     },
     {
         "id": "TEST_03",
-        "category": "Control Case: Ground Transport",
+        "category": "Buried Clause: Hotel Laundry",
+        "query": "Under what trip length can travelers expense laundry and dry cleaning?",
+        "critical_section_keyword": "3.2",
+        "description": "Dense retriever buries Section 3.2 at Rank #5 outside Top 3; Cross-Encoder promotes to Rank #1.",
+        "is_genuine_failure": True
+    },
+    {
+        "id": "TEST_04",
+        "category": "Buried Clause: Ancillary Fees",
+        "query": "Are flight cancellation insurance and seat selection fees reimbursable?",
+        "critical_section_keyword": "2.3",
+        "description": "Dense retriever buries baggage/ancillary fee clause at Rank #8; Cross-Encoder promotes to Rank #2.",
+        "is_genuine_failure": True
+    },
+    {
+        "id": "TEST_05",
+        "category": "Control: Ground Transport",
         "query": "Can I book an executive airport transfer using Uber or ridesharing apps?",
         "critical_section_keyword": "4.4",
         "description": "Control query evaluating rideshare permissions (4.1) and limousine ban (4.4). Stable in Top 2.",
         "is_genuine_failure": False
     },
     {
-        "id": "TEST_04",
-        "category": "Control Case: Administrative Penalty",
+        "id": "TEST_06",
+        "category": "Control: Admin Penalty",
         "query": "What disciplinary action occurs if expense claims are submitted more than a month late?",
         "critical_section_keyword": "8.5",
         "description": "Control query with unambiguous high semantic overlap to Section 8.5. Top-ranked in both pipelines.",
@@ -318,7 +334,7 @@ print("\n[Complete] Saved experiment data to experiment_results.json")
 # STEP 7: GENERATE CHARTS DYNAMICALLY FROM experiment_records
 # -------------------------------------------------------------
 # Chart 1: Rank Shifts Comparison
-fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+fig, ax = plt.subplots(figsize=(10, 5.5), dpi=300)
 test_ids = [r["test_id"] for r in experiment_records]
 categories = [f"{r['test_id']}\n({r['category'].split(':')[0]})" for r in experiment_records]
 baseline_ranks = [r["baseline_rank"] for r in experiment_records]
@@ -334,9 +350,9 @@ ax.axvline(x=3.5, color='#e67e22', linestyle='--', linewidth=2, label='Top-3 LLM
 ax.set_xlabel('Retrieval Rank (Lower is Better / Rank 1 = Top Candidate)', fontsize=11, fontweight='bold')
 ax.set_title('Qualitative Retrieval Rank Shifts: Baseline vs. Re-Ranking', fontsize=13, fontweight='bold', pad=15)
 ax.set_yticks(y)
-ax.set_yticklabels(categories, fontsize=10)
+ax.set_yticklabels(categories, fontsize=9.5)
 ax.invert_yaxis()
-ax.legend(loc='lower right', framealpha=0.95)
+ax.legend(loc='lower right', framealpha=0.95, fontsize=9.5)
 ax.grid(axis='x', linestyle=':', alpha=0.6)
 
 for rect in rects1:
@@ -355,7 +371,7 @@ plt.close()
 print("[Chart Generated] rank_shifts_comparison.png")
 
 # Chart 2: Latency Comparison
-fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+fig, ax = plt.subplots(figsize=(10, 5.2), dpi=300)
 p1_bars = [b["mean_p1_ms"] for b in latency_benchmarks]
 ce_bars = [b["mean_ce_ms"] for b in latency_benchmarks]
 
@@ -368,13 +384,17 @@ b2 = ax.bar(x_pos, ce_bars, bar_width, bottom=p1_bars, label='Stage 2 Overhead (
 ax.set_ylabel('Execution Runtime (milliseconds)', fontsize=11, fontweight='bold')
 ax.set_title(f'Empirical Retrieval Latency Breakdown across 10 Iterations (CPU Benchmark)', fontsize=12, fontweight='bold', pad=15)
 ax.set_xticks(x_pos)
-ax.set_xticklabels([f"{b['test_id']}\n{b['category'].split(':')[0]}" for b in latency_benchmarks], fontsize=10)
-ax.legend(loc='upper right', framealpha=0.95)
+ax.set_xticklabels([f"{b['test_id']}\n{b['category'].split(':')[0]}" for b in latency_benchmarks], fontsize=9)
+
+# 35% headroom so bars and annotations never overlap legend
+max_tot = max(p1_bars[i] + ce_bars[i] for i in range(len(test_ids)))
+ax.set_ylim(0, max_tot * 1.35)
+ax.legend(loc='upper left', framealpha=0.95, fontsize=9.5)
 ax.grid(axis='y', linestyle=':', alpha=0.6)
 
 for i in range(len(test_ids)):
     tot = p1_bars[i] + ce_bars[i]
-    ax.text(x_pos[i], tot + 3, f"{tot:.1f} ms\n({ce_bars[i]:.1f} ms CE)", ha='center', va='bottom', fontsize=9, fontweight='bold')
+    ax.text(x_pos[i], tot + 2.5, f"{tot:.1f} ms", ha='center', va='bottom', fontsize=9, fontweight='bold')
 
 plt.tight_layout()
 plt.savefig("latency_comparison.png")

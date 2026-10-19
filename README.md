@@ -14,7 +14,7 @@ This repository contains the complete implementation, stress-testing evaluation,
 | Deliverable | File Path | Description |
 | :--- | :--- | :--- |
 | **Primary Code Submission** | [`rag_baseline_vs_reranking.ipynb`](./rag_baseline_vs_reranking.ipynb) | Single fully-executed Jupyter Notebook with precomputed cell outputs, tables, and visualization charts. |
-| **Technical Report (PDF)** | [`REPORT.pdf`](./REPORT.pdf) | Publication-grade, submission-ready 5-page PDF technical report compiled via LaTeX. |
+| **Technical Report (PDF)** | [`REPORT.pdf`](./REPORT.pdf) | Publication-grade, submission-ready 4-page PDF technical report compiled via LaTeX. |
 | **Technical Report (Markdown)** | [`REPORT.md`](./REPORT.md) | Comprehensive technical report addressing all 4 required sections with empirical tables and scaling proofs. |
 | **Evaluation Dataset** | [`corporate_travel_and_expense_policy.pdf`](./corporate_travel_and_expense_policy.pdf) | Complex 4-page enterprise policy PDF document (30 clauses) with rules, exceptions, and negations. |
 | **Benchmark Script** | [`run_experiments.py`](./run_experiments.py) | Standalone command-line Python runner for headless benchmarking and latency profiling. |
@@ -30,36 +30,52 @@ This repository contains the complete implementation, stress-testing evaluation,
 When evaluating queries with subtle qualifiers, exceptions, and negations, dense retrieval (Bi-Encoder) suffered from informational bottlenecks and buried critical clauses outside the top ranking. Cross-Encoder re-ranking restored accuracy by promoting these clauses to the top:
 
 ```
-[TEST_01: Exceptions & Corner Cases]
+[TEST_01: Exceptions & Distractors]
 Query: "Can staff fly in premium cabins for international client negotiations?"
-  • Critical Section: Section 2.4 (Long-Haul International Travel Exception Clause)
+  • Target Section: Section 2.4 (Long-Haul International Travel Exception Clause)
   • Baseline Dense Rank:   Rank #3 (Cosine: 0.4039)
   • Re-Ranked Rank:        Rank #1 (Cross-Score: +0.4351) [PROMOTED by +2 ranks]
   • Baseline LLM (Ans 1):  Stated approval required but omitted flight duration thresholds (>8h, or >6h with client presentation within 12h).
   • Re-Ranked LLM (Ans 2): Accurately specified the exact flight duration thresholds and 10-day approval timeline.
 
-[TEST_02: Negation & Constraints]
+[TEST_02: Negation & Distractor Chunk]
 Query: "What items are not covered on expense claims for client business meals?"
-  • Critical Section: Section 5.3 (Prohibited Entertainment Items and Alcohol Limits)
+  • Target Section: Section 5.3 (Prohibited Entertainment Items and Alcohol Limits)
   • Baseline Dense Rank:   Rank #3 (Cosine: 0.4615, behind Section 3.2 Hotel Incidentals at #2)
   • Re-Ranked Rank:        Rank #2 (Cross-Score: +1.1171) [PROMOTED by +1 rank]
-  • Baseline LLM (Ans 1):  Hallucinated that hotel amenities (in-room movies, mini-bar, laundry <5 days, spa, gym fees) applied to business meals!
+  • Baseline LLM (Ans 1):  Misled by higher-ranked distractor (3.2) into listing hotel amenities!
   • Re-Ranked LLM (Ans 2): Accurately detailed the 1-drink alcohol cap, prohibitions on adult venues/nightclub bottle fees, and tobacco/gambling bans.
 
-[TEST_03 & TEST_04: Control Queries]
-  • TEST_03 (Ground Transport): Section 4.4 remained at Rank #2 in both pipelines (+0 shift).
-  • TEST_04 (Administrative Penalty): Section 8.5 remained at Rank #1 in both pipelines (+0 shift).
+[TEST_03: Buried Clause: Hotel Laundry]
+Query: "Under what trip length can travelers expense laundry and dry cleaning?"
+  • Target Section: Section 3.2 (Prohibited Hotel Incidentals)
+  • Baseline Dense Rank:   Rank #5 (Cosine: 0.3667, outside Top-3 LLM context)
+  • Re-Ranked Rank:        Rank #1 (Cross-Score: +2.4859) [PROMOTED by +4 ranks]
+  • Baseline LLM (Ans 1):  Hallucinated an inaccurate 30-day rule because chunk was omitted.
+  • Re-Ranked LLM (Ans 2): Accurately stated: for trips shorter than 5 days, laundry cannot be expensed.
+
+[TEST_04: Buried Clause: Ancillary Fees]
+Query: "Are flight cancellation insurance and seat selection fees reimbursable?"
+  • Target Section: Section 2.3 (Baggage & Ancillary Airline Fees)
+  • Baseline Dense Rank:   Rank #8 (Cosine: 0.3413, deeply buried)
+  • Re-Ranked Rank:        Rank #2 (Cross-Score: -1.6741) [PROMOTED by +6 ranks]
+
+[TEST_05 & TEST_06: Control Queries]
+  • TEST_05 (Ground Transport): Section 4.4 remained at Rank #2 in both pipelines (+0 shift).
+  • TEST_06 (Administrative Penalty): Section 8.5 remained at Rank #1 in both pipelines (+0 shift).
 ```
 
 ### 2. Empirical Latency Profiling (10-Warmed Iteration CPU Benchmark)
 
 | Test ID | Failure Mode Category | Pipeline 1 (Dense Baseline) | Stage 2 (Cross-Encoder 10 Pairs) | Pipeline 2 Total | Overhead Ratio |
 | :---: | :--- | :---: | :---: | :---: | :---: |
-| **TEST_01** | Exceptions & Corner Cases | 9.78 ms | 122.83 ms | 132.61 ms | 13.56x |
-| **TEST_02** | Negation & Constraints | 9.36 ms | 140.54 ms | 149.90 ms | 16.01x |
-| **TEST_03** | Control: Ground Transport | 9.33 ms | 122.39 ms | 131.72 ms | 14.12x |
-| **TEST_04** | Control: Admin Penalty | 9.47 ms | 126.31 ms | 135.78 ms | 14.34x |
-| **MEAN** | **System Average** | **9.49 ms** | **128.02 ms** | **137.50 ms** | **14.51x** |
+| **TEST_01** | Exceptions & Distractors | 10.05 ms | 129.97 ms | 140.02 ms | 13.94x |
+| **TEST_02** | Negation & Distractor Chunk | 10.21 ms | 159.05 ms | 169.26 ms | 16.58x |
+| **TEST_03** | Buried Clause: Hotel Laundry | 10.14 ms | 133.98 ms | 144.13 ms | 14.21x |
+| **TEST_04** | Buried Clause: Ancillary Fees | 10.27 ms | 158.74 ms | 169.01 ms | 16.46x |
+| **TEST_05** | Control: Ground Transport | 10.21 ms | 132.93 ms | 143.14 ms | 14.02x |
+| **TEST_06** | Control: Admin Penalty | 10.28 ms | 135.07 ms | 145.35 ms | 14.14x |
+| **MEAN** | **System Average** | **10.19 ms** | **141.62 ms** | **151.82 ms** | **14.89x** |
 
 ---
 
