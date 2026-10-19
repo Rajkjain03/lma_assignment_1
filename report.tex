@@ -1,24 +1,19 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass[10.5pt,a4paper]{article}
 
 \usepackage[utf8]{inputenc}
-\usepackage[top=0.9in,bottom=0.9in,left=0.9in,right=0.9in]{geometry}
+\usepackage[top=0.75in,bottom=0.75in,left=0.75in,right=0.75in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{fancyhdr}
-\usepackage{tcolorbox}
 \usepackage{enumitem}
 
-\tcbuselibrary{skins,breakable}
-
 % Color palette
-\definecolor{primaryblue}{RGB}{24, 43, 73}
-\definecolor{accentblue}{RGB}{41, 128, 185}
-\definecolor{boxbg}{RGB}{248, 249, 250}
-\definecolor{failbg}{RGB}{253, 246, 246}
-\definecolor{passbg}{RGB}{246, 253, 248}
+\definecolor{primaryblue}{RGB}{20, 45, 85}
+\definecolor{accentblue}{RGB}{0, 102, 204}
+\definecolor{darkgray}{RGB}{50, 50, 50}
 
 \hypersetup{
     colorlinks=true,
@@ -27,62 +22,60 @@
     urlcolor=accentblue
 }
 
-% Headers and Footers
+% Page headers and footers
 \pagestyle{fancy}
 \fancyhf{}
 \rhead{\small \textcolor{gray}{LMA Assignment 1: Baseline vs. Re-Ranking}}
-\lhead{\small \textcolor{gray}{Technical Report}}
+\lhead{\small \textcolor{gray}{Raj K. Jain (Roll: LMA-2026)}}
 \rfoot{\small Page \thepage}
-\lfoot{\small \textcolor{gray}{Raj K. Jain}}
-\renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\footrulewidth}{0.4pt}
+\renewcommand{\headrulewidth}{0.3pt}
 
 \begin{document}
 
 % Title Block
 \begin{center}
-    {\Large \textbf{\textcolor{primaryblue}{Retrieval-Augmented Generation: Baseline vs. Re-Ranking}}}\\[1.0ex]
-    {\large \textbf{Comparative Analysis, Stress Testing and Scaling Profiling}}\\[1.2ex]
-    \textbf{Student Author:} Raj K. Jain \quad$\vert$\quad \textbf{Course:} Large Language Models \& AI Systems (LMA)\\[0.4ex]
-    \textbf{Deliverables:} GitHub Repository + Technical Report \quad$\vert$\quad \textbf{Date:} October 2026
+    {\Large \textbf{RAG Assignment 1: Dense Baseline vs. Cross-Encoder Re-Ranking}}\\[0.4ex]
+    {\normalsize \textbf{Course:} Large Language Models \& AI Systems \quad$\vert$\quad \textbf{Author:} Raj K. Jain}\\[0.3ex]
+    \textbf{GitHub Repository:} \url{https://github.com/Rajkjain03/lma_assignment_1}
 \end{center}
 
-\vspace{-0.6em}
-\noindent\rule{\linewidth}{0.8pt}
-\vspace{0.8em}
+\vspace{-0.7em}
+\noindent\rule{\linewidth}{0.6pt}
+\vspace{0.3em}
 
 \section{Architecture Comparison: Bi-Encoder vs. Cross-Encoder}
 
-In Retrieval-Augmented Generation (RAG), retrieval is tasked with identifying the most relevant chunks from an indexed corpus for a given user query. Two fundamentally distinct neural architectures are used for this purpose: \textbf{Bi-Encoders} and \textbf{Cross-Encoders}.
+In this assignment, I implemented and compared two different retrieval approaches for Retrieval-Augmented Generation (RAG): a standard single-stage Bi-Encoder baseline and a two-stage pipeline with a Cross-Encoder re-ranker.
 
-\begin{tcolorbox}[colback=boxbg,colframe=primaryblue!70,title=\textbf{Mathematical Formulations: Bi-Encoder vs. Cross-Encoder}]
-\small
-\textbf{Bi-Encoder (Independent Dual-Tower Representation):}
-\begin{align*}
-    \vec{u} &= \text{Pool}(\text{Transformer}_{\theta}(q)) \in \mathbb{R}^d, \quad
-    \vec{v} = \text{Pool}(\text{Transformer}_{\theta}(c)) \in \mathbb{R}^d \\
-    S_{\text{Bi}}(q, c) &= \cos(\vec{u}, \vec{v}) = \frac{\vec{u} \cdot \vec{v}}{\|\vec{u}\|_2 \, \|\vec{v}\|_2}
-\end{align*}
-\textit{Property:} Query tokens and chunk tokens \textbf{never interact}. Representations are decoupled.
+\subsection{How Both Models Work Mechanically}
+The main difference comes down to when and how query tokens and document tokens interact inside the transformer:
 
-\vspace{0.4em}
-\textbf{Cross-Encoder (Joint All-to-All Multi-Head Self-Attention):}
-\begin{align*}
-    X &= [\text{CLS}] \circ q \circ [\text{SEP}] \circ c \circ [\text{SEP}] \\
-    H &= \text{TransformerLayers}(X) \in \mathbb{R}^{L \times d} \\
-    S_{\text{Cross}}(q, c) &= \mathbf{W}^T h_{\text{CLS}} + b \in (-\infty, +\infty)
-\end{align*}
-\textit{Property:} Every query token attends directly to every chunk token across all self-attention layers.
-\end{tcolorbox}
+\begin{itemize}[leftmargin=*,noitemsep,topsep=2pt]
+    \item \textbf{Bi-Encoder (\texttt{all-MiniLM-L6-v2}):}
+    Here, the query $q$ and document passage $c$ are encoded totally independently using separate passes (or dual towers):
+    \begin{equation*}
+        \vec{u} = \text{MeanPool}(\text{Transformer}(q)) \in \mathbb{R}^{384}, \quad
+        \vec{v} = \text{MeanPool}(\text{Transformer}(c)) \in \mathbb{R}^{384}
+    \end{equation*}
+    Similarity is computed using standard cosine similarity:
+    \begin{equation*}
+        S_{\text{Bi}}(q, c) = \frac{\vec{u} \cdot \vec{v}}{\|\vec{u}\|_2 \, \|\vec{v}\|_2}
+    \end{equation*}
+    Because every chunk in the corpus is converted into a standalone vector without knowing the query beforehand, I can precompute all embeddings offline and store them in an Approximate Nearest Neighbor (ANN) vector index like FAISS (HNSW graph). At test time, finding candidates takes sub-linear time $\mathcal{O}(d \cdot \log N)$, taking just a few milliseconds.
+    However, compressing an entire 200--300 word policy paragraph into just 384 numbers creates an informational bottleneck. Query tokens and chunk tokens never attend to each other, so fine-grained conditions, negative constraints, and exception qualifiers get smoothed out.
 
-\subsection{Core Mechanical Differences}
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{Token Interaction vs. Information Bottleneck:}
-    In a Bi-Encoder (\texttt{all-MiniLM-L6-v2}), the document passage $c$ is compressed into a single vector $\vec{v} \in \mathbb{R}^{384}$ via mean pooling. Squeezing an entire 300-word paragraph containing general rules, conditional waivers, and monetary penalties into 384 numbers creates an informational bottleneck. At inference time, the query vector $\vec{u}$ only measures coarse geometric alignment with $\vec{v}$. Query tokens never attend directly to chunk tokens. In contrast, a Cross-Encoder (\texttt{ms-marco-MiniLM-L-6-v2}) concatenates $q$ and $c$, allowing bidirectional self-attention $\text{softmax}(QK^T / \sqrt{d_k})V$ to directly correlate specific query terms (e.g., \textit{``client negotiations''}) with conditional clauses inside the passage (e.g., \textit{``within 12 hours of flight arrival''}).
-    
-    \item \textbf{Indexability and Precomputation:}
-    Because the Bi-Encoder produces document vectors $\vec{v}_i$ independently of any query, all $N$ chunks in a corpus can be computed offline once and indexed into an Approximate Nearest Neighbor (ANN) index (e.g., HNSW in FAISS). Query matching requires only a single vector dot product search scaling in sub-linear time $\mathcal{O}(d \cdot \log N)$. For a Cross-Encoder, however, the joint input $[\text{CLS}] \circ q \circ [\text{SEP}] \circ c$ requires both the query and chunk to be known simultaneously; \textbf{offline vector precomputation is fundamentally impossible}.
-\end{enumerate}
+    \item \textbf{Cross-Encoder (\texttt{ms-marco-MiniLM-L-6-v2}):}
+    Instead of isolated vector compression, the query and passage are concatenated into a single input string:
+    \begin{equation*}
+        X = [\text{CLS}] \circ q \circ [\text{SEP}] \circ c \circ [\text{SEP}]
+    \end{equation*}
+    This concatenated sequence is passed through all transformer layers. Every single query token can attend directly to every chunk token through bidirectional self-attention:
+    \begin{equation*}
+        \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+    \end{equation*}
+    The output is scored directly using a classification head logit $S(q, c) \in (-\infty, +\infty)$ on the $[\text{CLS}]$ token. This allows the model to spot exact conditional clauses (like ``within 12 hours of flight arrival'') and negative modifiers (``not covered'', ``strictly prohibited'').
+    The big drawback is that offline precomputation is impossible because $q$ and $c$ must be fed together. Scoring $N$ candidate passages requires $N$ separate forward passes with quadratic complexity $\mathcal{O}(N \cdot L^2)$.
+\end{itemize}
 
 \begin{table}[h]
 \centering
@@ -90,33 +83,27 @@ In Retrieval-Augmented Generation (RAG), retrieval is tasked with identifying th
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{lll}
 \toprule
-\textbf{Metric} & \textbf{Bi-Encoder (\texttt{all-MiniLM-L6-v2})} & \textbf{Cross-Encoder (\texttt{ms-marco-MiniLM-L-6-v2})} \\
+\textbf{Feature} & \textbf{Bi-Encoder (\texttt{all-MiniLM-L6-v2})} & \textbf{Cross-Encoder (\texttt{ms-marco-MiniLM-L-6-v2})} \\
 \midrule
-\textbf{Model Topology} & Dual independent encoder towers & Single joint concatenated transformer \\
-\textbf{Token Interaction} & Zero cross-attention across $q$ and $c$ & All-to-all cross-attention across all layers \\
-\textbf{Relevance Output} & Geometric cosine similarity $\cos(\vec{u}, \vec{v})$ & Learned classification head logit $S(q, c)$ \\
-\textbf{Offline Indexing} & Yes (vectors stored in FAISS / Vector DB) & No (requires live forward pass per pair) \\
-\textbf{Search Complexity} & Sub-linear: $\mathcal{O}(d \cdot \log N)$ with ANN & Linear: $\mathcal{O}(N \cdot L^2)$ with $N$ forward passes \\
-\textbf{Linguistic Precision} & Coarse topical matching; fails on negations & State-of-the-art; captures syntax and negations \\
+\textbf{Architecture} & Dual independent encoder towers & Single joint transformer model \\
+\textbf{Token Interaction} & Zero cross-attention between $q$ and $c$ & All-to-all cross-attention across all layers \\
+\textbf{Relevance Output} & Cosine similarity $\cos(\vec{u}, \vec{v})$ in $[-1, 1]$ & Classification head logit $S(q, c)$ in $(-\infty, +\infty)$ \\
+\textbf{Offline Indexing} & Yes (vectors stored in FAISS / vector DB) & No (requires live forward pass per pair) \\
+\textbf{Search Complexity} & Sub-linear $\mathcal{O}(d \cdot \log N)$ via ANN graphs & Linear $\mathcal{O}(N \cdot L^2)$ with $N$ forward passes \\
+\textbf{Ranking Quality} & Fast broad filter; loses negations/exceptions & High precision; captures syntax, negations, conditions \\
 \bottomrule
 \end{tabular}%
 }
-\caption{Systematic architectural comparison between Bi-Encoders and Cross-Encoders.}
+\caption{Systematic comparison between Bi-Encoder and Cross-Encoder architectures.}
 \label{tab:arch_comparison}
 \end{table}
 
 \section{Qualitative \& Rank Shift Analysis}
 
-\subsection{Evaluation Setup}
-We evaluated both pipelines over a complex 4-page enterprise policy document: \textit{``Acme Global Travel, Expense and Procurement Policy (2026)''} containing 30 structured clauses.
+\subsection{Evaluation Dataset \& Experimental Setup}
+For this assignment, I created a synthetic 4-page enterprise policy document named \textit{``Acme Global Travel, Expense and Procurement Policy (2026)''} containing 30 numbered sections. I designed it deliberately with realistic corporate rules: broad general restrictions (e.g., all flights must be coach), distant exception clauses (business class allowed for long-haul flights under client negotiation conditions), buried alcohol restrictions, and distractor clauses.
 
-\textit{Note on Evaluation Corpus:} This document is a synthetic enterprise compliance manual authored to stress-test RAG retrieval boundaries. It contains general rules with distant exception clauses, negative constraints, and high lexical overlap distractors.
-
-We evaluated four queries:
-\begin{itemize}[noitemsep]
-    \item \textbf{TEST\_01 \& TEST\_02:} Genuine failure queries where dense retrieval blurs context and re-ranking restores precision.
-    \item \textbf{TEST\_03 \& TEST\_04:} Control queries where both pipelines agree on the top candidates.
-\end{itemize}
+I tested two genuine failure queries where baseline dense retreival stumbled, along with two control queries:
 
 \begin{table}[htbp]
 \centering
@@ -124,71 +111,69 @@ We evaluated four queries:
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{cllccc}
 \toprule
-\textbf{Test ID} & \textbf{Category} & \textbf{Target Section} & \textbf{Bi-Encoder} & \textbf{Cross-Encoder} & \textbf{Shift} \\
+\textbf{Test ID} & \textbf{Category} & \textbf{Target Policy Section} & \textbf{Bi-Encoder Rank} & \textbf{Cross-Encoder Rank} & \textbf{Shift} \\
 \midrule
-\textbf{TEST\_01} & Exceptions & Sec 2.4 (Long-Haul Flight Exception) & Rank \#3 (0.4039) & \textbf{Rank \#1 (+0.4351)} & \textbf{+2} \\
-\textbf{TEST\_02} & Negations & Sec 5.3 (Prohibited Items \& Alcohol) & Rank \#3 (0.4615) & \textbf{Rank \#2 (+1.1171)} & \textbf{+1} \\
-\textbf{TEST\_03} & Control & Sec 4.4 (Luxury Chauffeured Car Ban) & Rank \#2 (0.4516) & Rank \#2 (+1.1141) & +0 \\
-\textbf{TEST\_04} & Control & Sec 8.5 (Late Submission Forfeiture) & Rank \#1 (0.6552) & Rank \#1 (+6.1669) & +0 \\
+\textbf{TEST\_01} & Exceptions \& Corner Cases & Sec 2.4 (Long-Haul Flight Exception) & Rank \#3 (score: 0.4039) & \textbf{Rank \#1 (score: +0.4351)} & \textbf{+2} \\
+\textbf{TEST\_02} & Negation \& Constraints & Sec 5.3 (Prohibited Items \& Alcohol) & Rank \#3 (score: 0.4615) & \textbf{Rank \#2 (score: +1.1171)} & \textbf{+1} \\
+\textbf{TEST\_03} & Control: Ground Transport & Sec 4.4 (Luxury Chauffeured Car Ban) & Rank \#2 (score: 0.4516) & Rank \#2 (score: +1.1141) & +0 \\
+\textbf{TEST\_04} & Control: Admin Penalty & Sec 8.5 (Late Submission Forfeiture) & Rank \#1 (score: 0.6552) & Rank \#1 (score: +6.1669) & +0 \\
 \bottomrule
 \end{tabular}%
 }
-\caption{Retrieval rank shifts summary across test queries.}
+\caption{Retrieval rank shifts across test queries (Top 3 context threshold).}
 \label{tab:rank_shifts}
 \end{table}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.92\linewidth]{rank_shifts_comparison.png}
-\caption{Qualitative rank shifts: Baseline Bi-Encoder ranks vs. Re-ranked Cross-Encoder ranks.}
+\includegraphics[width=0.88\linewidth]{rank_shifts_comparison.png}
+\caption{Qualitative rank shifts: Bi-Encoder ranks (red) vs. Re-ranked Cross-Encoder ranks (green).}
 \label{fig:rank_shifts}
 \end{figure}
 
 \subsection{Detailed Case Study 1: Exceptions \& Corner Cases (TEST\_01)}
 \textbf{Query:} \textit{``Can staff fly in premium cabins for international client negotiations?''}\\
-\textbf{Target Policy Truth:} Section 2.4 allows Business Class for continuous non-stop international flights exceeding 8 hours, or exceeding 6 hours if the traveler is scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival, subject to VP and CFO approval.
-
-\begin{tcolorbox}[colback=failbg,colframe=primaryblue!50,title=\textbf{Pipeline 1 (Baseline Bi-Encoder) --- Omitted Condition}]
-\small
-\textbf{Retrieved Top 3 Context:}
-\begin{itemize}[noitemsep,topsep=0pt]
-    \item Rank \#1: Section 2.1 (\textit{Standard Cabin Class Mandate}) --- Cosine: 0.5428
-    \item Rank \#2: Section 1.3 (\textit{Designated Corporate Travel Booking Engine}) --- Cosine: 0.4127
-    \item Rank \#3: Section 2.4 (\textit{Long-Haul International Travel Exception Clause}) --- Cosine: 0.4039
+\textbf{Target Policy Rule:} Section 2.4 allows Business Class on continuous non-stop flights over 8 hours, or over 6 hours if presenting to clients or negotiating within 12 hours of landing, with VP/CFO approval.
+\begin{itemize}[leftmargin=*,noitemsep]
+    \item \textbf{Baseline Retrieval (Bi-Encoder):}
+    The dense retriever pulled Section 2.1 (\textit{Standard Cabin Class Mandate}) at Rank \#1 (cosine 0.5428) and Section 1.3 at Rank \#2 (0.4127). The actual exception clause in Section 2.4 barely scraped in at Rank \#3 (0.4039).
+    \item \textbf{Re-Ranking (Cross-Encoder):}
+    The Cross-Encoder evaluated the full query against the chunk text and promoted Section 2.4 directly to \textbf{Rank \#1} (logit +0.4351), pushing Section 2.1 down to Rank \#2 (-5.7229).
+    \item \textbf{LLM Generation Comparison (using local Qwen2.5-0.5B-Instruct):}
+    \begin{quote}\small
+    \textbf{Answer 1 (Baseline):} \textit{``Yes, staff can fly in premium cabins for international client negotiations. However, they need to obtain prior written concurrence from both the Division Vice President and the Chief Financial Officer at least 10 business days before ticketing.''}
+    \end{quote}
+    Because Section 2.1 sat at Rank \#1, the baseline answer missed the essential flight duration thresholds (>8 hours, or >6 hours with client presentation within 12 hours).
+    \begin{quote}\small
+    \textbf{Answer 2 (Re-Ranked):} \textit{``Yes, staff can fly in premium cabins for international client negotiations under the long-haul international travel exception clause. The policy allows this exception when traveling on continuous non-stop international flights with flight durations exceeding 8 hours or 6 hours if the traveler is scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival. Employees need prior written concurrence from both the Division Vice President and the Chief Financial Officer no later than 10 business days before booking their tickets.''}
+    \end{quote}
+    With Section 2.4 at Rank \#1, the model gave the complete, exact rule including flight hour limits.
 \end{itemize}
-\textbf{LLM Generation (Answer 1 from Qwen2.5-0.5B-Instruct):}
-\begin{quote}
-\textit{``Yes, staff can fly in premium cabins for international client negotiations. However, they need to obtain prior written concurrence from both the Division Vice President and the Chief Financial Officer at least 10 business days before ticketing.''}
-\end{quote}
-\textbf{Analysis:} Because Section 2.1 dominated the prompt, the model stated that approval is required but omitted the essential flight duration criteria (>8 hours, or >6 hours with client presentation within 12 hours).
-\end{tcolorbox}
-
-\begin{tcolorbox}[colback=passbg,colframe=primaryblue!50,title=\textbf{Pipeline 2 (Cross-Encoder Re-Ranking) --- Complete Compliance}]
-\small
-\textbf{Re-Ranked Top 3 Context:}
-\begin{itemize}[noitemsep,topsep=0pt]
-    \item \textbf{Rank \#1 (Promoted +2): Section 2.4 (\textit{Long-Haul Exception Clause})} --- Cross-Score: +0.4351
-    \item Rank \#2: Section 2.1 (\textit{Standard Cabin Class Mandate}) --- Cross-Score: -5.7229
-    \item Rank \#3: Section 1.2 (\textit{Mandatory Pre-Trip Travel Authorization}) --- Cross-Score: -7.9689
-\end{itemize}
-\textbf{LLM Generation (Answer 2 from Qwen2.5-0.5B-Instruct):}
-\begin{quote}
-\textit{``Yes, staff can fly in premium cabins for international client negotiations under the long-haul international travel exception clause. The policy allows this exception when traveling on continuous non-stop international flights with flight durations exceeding 8 hours or 6 hours if the traveler is scheduled to deliver a client presentation or attend executive contract negotiations within 12 hours of flight arrival. Employees need prior written concurrence from both the Division Vice President and the Chief Financial Officer no later than 10 business days before booking their tickets.''}
-\end{quote}
-\textbf{Analysis:} Re-ranking promoted Section 2.4 to the \#1 position, allowing the model to accurately articulate the exact flight duration thresholds.
-\end{tcolorbox}
 
 \subsection{Detailed Case Study 2: Negation \& Constraints (TEST\_02)}
 \textbf{Query:} \textit{``What items are not covered on expense claims for client business meals?''}\\
-\textbf{Target Policy Truth:} Section 5.3 strictly limits alcohol to 1 drink per diner, prohibits solo alcohol, and bans nightclub bottle service, adult entertainment, tobacco, and gambling losses.
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Baseline Retrieval Failure (Direct Hallucination):} The Bi-Encoder ranked Section 5.1 at \#1 (cosine 0.5936) and Section 3.2 (\textit{Prohibited Hotel Incidentals}) at \#2 (cosine 0.5562), ahead of Section 5.3 at \#3 (cosine 0.4615). Because Section 3.2 sat higher in the prompt, the LLM (\textbf{Answer 1}) hallucinated that hotel amenities (in-room video on-demand, mini-bar, laundry for trips <5 days, spa, gym passes) were the non-covered items for client business meals!
-    \item \textbf{Re-Ranking Resolution:} The Cross-Encoder promoted Section 5.3 to \textbf{Rank \#2} (score +1.1171) ahead of Section 3.2 (score -1.5279). As a result, the LLM (\textbf{Answer 2}) correctly identified the 1-drink alcohol cap, adult entertainment / bottle service restrictions, and tobacco/gambling bans.
+\textbf{Target Policy Rule:} Section 5.3 limits alcohol to 1 drink per diner, prohibits solo alcohol completely, and bans nightclub bottle service, adult entertainment, tobacco, and gambling losses.
+\begin{itemize}[leftmargin=*,noitemsep]
+    \item \textbf{Baseline Retrieval Failure (Direct Hallucination):}
+    The Bi-Encoder matched the positive keywords ``client business meals'' to Section 5.1 (\textit{Client Entertainment}) at Rank \#1 (0.5936). For the negation ``not covered'', it pulled Section 3.2 (\textit{Prohibited Hotel Incidentals}) at Rank \#2 (0.5562). The actual meal prohibition clause (Section 5.3) was pushed down to Rank \#3 (0.4615).
+    \begin{quote}\small
+    \textbf{Answer 1 (Baseline Hallucination):} \textit{``Based on the policy context provided, the following items are not covered on expense claims for client business meals: In-room video on-demand/movie rentals, Mini-bar consumption, Laundry service for trips shorter than 5 days, Spa services, Sauna access, Dry cleaning fees, Hotel gym or fitness center pass fees...''}
+    \end{quote}
+    Because Section 3.2 outranked Section 5.3, the LLM was completely misled and stated that hotel room amenities were the prohibited items for client dinners!
+    \item \textbf{Re-Ranking Resolution:}
+    The Cross-Encoder picked up on the negative meal constraints and promoted Section 5.3 to \textbf{Rank \#2} (+1.1171), dropping Section 3.2 down to Rank \#3 (-1.5279).
+    \begin{quote}\small
+    \textbf{Answer 2 (Re-Ranked Corrected):} \textit{``Based on the policy context provided, the items that are not covered on expense claims for client business meals are: (a) Alcoholic beverages exceeding one (1) standard single serving of wine or beer per person during authorized client dinners. (b) Adult entertainment venues, nightclub admission or table bottle service fees, social club charges, and gentlemen's club invoices. (c) Tobacco, vape products, cannabis, and casino gambling losses. (d) Meals or travel for spouses, partners, dependents, or personal companions accompanying the traveler.''}
+    \end{quote}
+    The hallucination was totally resolved.
 \end{itemize}
+
+\subsection{Control Cases (TEST\_03 \& TEST\_04)}
+For TEST\_03 (airport executive rideshare vs limousine ban in Section 4.4) and TEST\_04 (submitting expense claims 45 days late in Section 8.5), the semantic overlap was already strong in the baseline. Section 4.4 remained at Rank \#2 in both pipelines, and Section 8.5 stayed at Rank \#1 in both pipelines. These control cases confirmed that the Cross-Encoder does not destabilize rankings when the dense retriever already finds the right chunk.
 
 \section{Empirical Latency Profiling}
 
-We recorded runtimes over \textbf{10 warmed iterations} (preceded by 5 warm-up passes) on our local CPU (x86\_64 architecture, PyTorch CPU execution).
+I benchmarked the runtime of both pipelines over \textbf{10 warmed iterations} (after 5 warm-up passes) on my local CPU. Table~\ref{tab:latency} summarizes the measured times.
 
 \begin{table}[htbp]
 \centering
@@ -196,7 +181,7 @@ We recorded runtimes over \textbf{10 warmed iterations} (preceded by 5 warm-up p
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{lcccc}
 \toprule
-\textbf{Test Query Category} & \textbf{P1 Baseline Retrieval} & \textbf{Cross-Encoder (10 Pairs)} & \textbf{P2 Total Latency} & \textbf{Overhead Ratio} \\
+\textbf{Test Query Category} & \textbf{P1 Baseline (Bi-Encoder)} & \textbf{Stage 2 (Cross-Encoder 10 Pairs)} & \textbf{P2 Total Latency} & \textbf{Overhead Ratio} \\
 \midrule
 \textbf{TEST\_01 (Exceptions)} & 9.78\,ms & 122.83\,ms & 132.61\,ms & 13.56$\times$ \\
 \textbf{TEST\_02 (Negations)}  & 9.36\,ms & 140.54\,ms & 149.90\,ms & 16.01$\times$ \\
@@ -213,46 +198,46 @@ We recorded runtimes over \textbf{10 warmed iterations} (preceded by 5 warm-up p
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.88\linewidth]{latency_comparison.png}
-\caption{Empirical retrieval latency breakdown across 10 warmed iterations.}
+\includegraphics[width=0.82\linewidth]{latency_comparison.png}
+\caption{Runtime breakdown across 10 warmed iterations on local CPU.}
 \label{fig:latency}
 \end{figure}
 
-\subsection{Latency Discussion}
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{Pipeline 1 (Dense Baseline):} Executes in \textbf{$\approx 9.5$\,ms} on CPU (query embedding takes $\sim 9.0$\,ms; cosine dot product takes $<0.5$\,ms).
-    \item \textbf{Pipeline 2 (Two-Stage Re-Ranking):} Adds an average overhead of \textbf{$\approx 128.0$\,ms} to evaluate joint self-attention across the 10 candidate pairs ($\sim 12.8$\,ms per pair on CPU), totaling \textbf{$\approx 137.5$\,ms}.
-    \item \textbf{Interactive SLA Feasibility:} In human-computer interaction, latencies below 100--200\,ms are generally responsive. While $\sim 138$\,ms on CPU is acceptable, deploying the Cross-Encoder on GPU with batching typically drops Stage 2 latency from $\sim 128$\,ms down to $\sim 15$--$25$\,ms, bringing end-to-end retrieval well under 35\,ms.
+\subsection{Latency Trade-Off Discussion}
+\begin{enumerate}[leftmargin=*,noitemsep]
+    \item \textbf{Baseline Retrieval Speed:} Pipeline 1 takes $\approx 9.5$\,ms on CPU. About 9.0\,ms is spent encoding the query text into a vector, and computing the dot product against 30 chunks takes under 0.5\,ms.
+    \item \textbf{Cross-Encoder Cost:} Evaluating 10 candidate pairs through the Cross-Encoder added an average of 128.02\,ms ($\approx 12.8$\,ms per candidate pair on CPU), making the total Pipeline 2 time $\approx 137.5$\,ms.
+    \item \textbf{Interactive Feasibility:} In human-computer interaction, anything under 200\,ms feels reasonably responsive, so 137.5\,ms is usable for interactive search. If deployed on a GPU server with batched inference, Stage 2 drops from $\sim 128$\,ms down to about 15--25\,ms, bringing total retrieval to under 35\,ms.
 \end{enumerate}
 
-\section{Scaling Question: Why Not Run a Cross-Encoder Over the Whole Collection?}
+\section{Scaling Question: Why Not Run Cross-Encoder Over the Whole Collection?}
 
-If Cross-Encoders exhibit superior accuracy, why not dispense with Bi-Encoders and evaluate every chunk in the corpus using a Cross-Encoder from the outset?
+If Cross-Encoders are clearly more accurate and avoid the informational bottleneck, why not just skip Bi-Encoders and score every single chunk with a Cross-Encoder from the start?
 
-\subsection{Quadratic Computational Complexity}
-In a Cross-Encoder, the sequence length is $L = |q| + |c|$. Multi-head self-attention scales quadratically: $\mathcal{O}(L^2)$ operations per layer. Scoring a corpus of $N$ chunks requires $N$ independent forward passes through the transformer:
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Measured CPU Scaling:} Based on our measured CPU runtime of $\tau \approx 12.8$\,ms per candidate pair, scoring a corpus of $N = 1,000,000$ chunks would require:
-    \begin{equation}
-        T_{\text{CPU}} = 1,000,000 \times 12.8\,\text{ms} = 12,800\,\text{seconds} \approx \mathbf{3.5\text{ hours per query!}}
-    \end{equation}
-    \item \textbf{GPU Server Estimate:} Even assuming enterprise GPU hardware executing a forward pass in $\tau \approx 2.0$\,ms:
-    \begin{equation}
+\subsection{Quadratic Complexity and Compute Cost}
+A Cross-Encoder must run full self-attention over the concatenated sequence length $L = |q| + |c|$. Multi-head attention has $\mathcal{O}(L^2)$ complexity per layer. Scoring an entire corpus of $N$ passages requires running $N$ complete transformer forward passes sequentially or in batches:
+\begin{itemize}[leftmargin=*,noitemsep]
+    \item \textbf{On CPU (Measured):} In my benchmark, each candidate pair took $\approx 12.8$\,ms on CPU. If scaled to a moderate corporate database of $N = 1,000,000$ chunks:
+    \begin{equation*}
+        T_{\text{CPU}} = 1,000,000 \times 12.8\,\text{ms} = 12,800\,\text{seconds} \approx \mathbf{3.5\text{ hours for just ONE query!}}
+    \end{equation*}
+    \item \textbf{On GPU (Estimate):} Even assuming an enterprise GPU server running forward passes at $\tau \approx 2.0$\,ms per pair:
+    \begin{equation*}
         T_{\text{GPU}} = 1,000,000 \times 2.0\,\text{ms} = 2,000\,\text{seconds} \approx \mathbf{33.3\text{ minutes per query!}}
-    \end{equation}
+    \end{equation*}
 \end{itemize}
-Under concurrent user queries, exhaustive Cross-Encoder scoring is computationally impossible.
+Under any real-world traffic, running a Cross-Encoder over the entire corpus is completely unfeasible.
 
-\subsection{Impossibility of Offline Indexing}
-In a Bi-Encoder, chunk vectors $\vec{v}_i = \text{Encoder}(c_i)$ are static and completely decoupled from the runtime query. This allows all $1,000,000$ chunks to be precomputed once offline and indexed into Approximate Nearest Neighbor (ANN) graph structures (e.g., HNSW in FAISS), answering queries in \textbf{5 to 10 milliseconds} ($\mathcal{O}(d \cdot \log N)$).
+\subsection{Offline Precomputation is Impossible}
+With a Bi-Encoder, chunk vectors $\vec{v}_i = \text{Encoder}(c_i)$ are static and completely independent of any future query. We compute them once offline and build an Approximate Nearest Neighbor index (like HNSW or IVF in FAISS). When a user asks a query, the vector search explores only a tiny graph path ($\mathcal{O}(d \cdot \log N)$), finishing in 5--10\,ms even across millions of chunks.
 
-In contrast, the Cross-Encoder score $S(q, c_i) = \mathcal{M}([q; c_i])$ requires both inputs simultaneously. Because the score cannot be factored into independent document vectors, \textbf{no precomputed vector index can ever be built}. Searching the corpus requires an exhaustive linear scan $\mathcal{O}(N)$.
+With a Cross-Encoder, the relevance score $S(q, c_i) = \mathcal{M}([q; c_i])$ depends on both texts at the same time. Because we cannot decouple the query from the passage, \textbf{no precomputed vector index can ever be built}. We would be forced to run an exhaustive linear scan $\mathcal{O}(N)$ over the whole database on every query.
 
-\subsection{The Two-Stage Solution}
-The two-stage pipeline reconciles scalability with precision:
-\begin{equation}
-    T_{\text{Two-Stage}} = \underbrace{T_{\text{Bi-Encoder}}(1,000,000 \rightarrow 10)}_{\sim 5-10\,\text{ms}} + \underbrace{T_{\text{Cross-Encoder}}(10\text{ candidates})}_{\sim 15-25\,\text{ms (GPU) / } 128\,\text{ms (CPU)}} \approx \mathbf{25-138\,\text{ms}}
-\end{equation}
-Stage 1 filters out 99.999\% of irrelevant documents in milliseconds, allowing Stage 2 to apply deep cross-attention exclusively to the top 10 candidates.
+\subsection{Why the Two-Stage Funnel is Necessary}
+The two-stage design solves this by combining the scalability of Bi-Encoders with the precision of Cross-Encoders:
+\begin{equation*}
+    T_{\text{Total}} = \underbrace{T_{\text{Bi-Encoder}}(1,000,000 \rightarrow 10)}_{\sim 5-10\,\text{ms via ANN}} + \underbrace{T_{\text{Cross-Encoder}}(10\text{ pairs})}_{\sim 15-25\,\text{ms on GPU / } 128\,\text{ms on CPU}} \approx \mathbf{25-138\,\text{ms}}
+\end{equation*}
+Stage 1 acts as a fast high-recall funnel, pruning 99.999\% of irrelevant chunks in milliseconds. Stage 2 then spends compute only on the top 10 candidates, fixing failure modes without blowing up runtime.
 
 \end{document}

@@ -1,8 +1,8 @@
-# Technical Report: Retrieval-Augmented Generation (Baseline vs. Re-Ranking)
+# RAG Assignment 1: Dense Baseline vs. Cross-Encoder Re-Ranking
 
 **Course:** Large Language Models & AI Systems (LMA)  
-**Student:** Raj K. Jain  
-**Deliverables:** GitHub Repository + Technical Report  
+**Author:** Raj K. Jain  
+**GitHub Repository:** [https://github.com/Rajkjain03/lma_assignment_1](https://github.com/Rajkjain03/lma_assignment_1)  
 **Date:** October 2026  
 
 ---
