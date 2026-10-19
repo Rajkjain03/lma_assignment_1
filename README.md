@@ -7,6 +7,10 @@
 
 This repository contains the complete implementation, stress-testing evaluation, and technical report for the **Retrieval-Augmented Generation (RAG) Assignment: Baseline vs. Re-Ranking**.
 
+* **Author:** Raj K. Jain
+* **Roll Number:** 2025201036
+* **Course:** Large Language Models & AI Systems (LMA)
+
 ---
 
 ## Deliverables Summary

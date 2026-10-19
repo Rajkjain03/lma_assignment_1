@@ -1,7 +1,7 @@
 # RAG Assignment 1: Dense Baseline vs. Cross-Encoder Re-Ranking
 
 **Course:** Large Language Models & AI Systems (LMA)  
-**Author:** Raj K. Jain (Roll: LMA-2026)  
+**Author:** Raj K. Jain (Roll No: 2025201036)  
 **GitHub Repository:** [https://github.com/Rajkjain03/lma_assignment_1](https://github.com/Rajkjain03/lma_assignment_1)  
 **Date:** October 2026  
 

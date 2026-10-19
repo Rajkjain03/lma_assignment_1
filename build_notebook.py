@@ -25,6 +25,7 @@ def create_rag_notebook(notebook_filename="rag_baseline_vs_reranking.ipynb"):
 
     # Title & Introduction
     cells.append(nbf.v4.new_markdown_cell("""# RAG Evaluation: Dense Baseline (Bi-Encoder) vs. Advanced Two-Stage Re-Ranking (Cross-Encoder)
+**Author:** Raj K. Jain (Roll No: 2025201036)  
 **Course:** Large Language Models & AI Systems (LMA)  
 **Deliverable:** Single Executable Jupyter Notebook (`rag_baseline_vs_reranking.ipynb`)  
 **Objective:** Implement, contrast, stress-test, and profile two retrieval workflows over a complex single-document corpus using open-weights models and local LLM generation.
