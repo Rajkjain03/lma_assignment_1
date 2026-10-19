@@ -569,53 +569,31 @@ plt.show()
   * *Rank Shift:* Section 5.3 placed at Rank #3 in the baseline, but Section 3.2 (*Hotel Incidentals*) sat at Rank #2 directly above it. Cross-Encoder promoted Section 5.3 to **Rank #2** (+1 shift, score 0.4615 $\\rightarrow$ +1.1171).
   * *LLM Generation Nuance:* The baseline LLM listed hotel room incidentals (mini-bar, movies, laundry, gym fees) instead of meal exclusions. This was not an ungrounded hallucination; the model was misled by a higher-ranked distractor (Section 3.2). Re-ranking pushed Section 5.3 ahead of the distractor, fixing the context ordering.
 * **Case Studies 3 & 4: Buried Clause Omission Failures (TEST_03 & TEST_04)**
-  * In **TEST_03** (*"Under what trip length can travelers expense laundry and dry cleaning?"*), Section 3.2 was buried at **Rank #5** by the Bi-Encoder, completely excluded from the Top 3 context. Quoted verbatim from the notebook output: *"Under the Global Travel, Expense, and Procurement Policy (2026), travelers cannot expense laundry and dry cleaning for trips longer than 30 days."* Because Section 8.5 mentioned 30 calendar days, the model pulled that number and invented an erroneous 30-day laundry restriction. The Cross-Encoder promoted Section 3.2 to **Rank #1** (+2.4859), giving the correct answer: *"For trips shorter than 5 days, travelers cannot expense laundry and dry cleaning."*
-  * In **TEST_04** (*"Are flight cancellation insurance and seat selection fees reimbursable?"*), dense retrieval placed Section 2.5 at #1 and buried Section 2.3 at **Rank #8** (0.3413) due to vocabulary mismatch. The Cross-Encoder promoted Section 2.3 to **Rank #2** with a score of -1.6741.
+  * In **TEST_03** (*"Under what trip length can travelers expense laundry and dry cleaning?"*), Section 3.2 specifies that laundry service is non-reimbursable for trips shorter than 5 days. Dense search buried Section 3.2 at **Rank #5** (0.3667), loading only filing deadlines (Section 8.1), pre-trip authorization (Section 1.2), and document overview into the baseline prompt. Because none of these chunks contained laundry rules, the baseline LLM had zero grounding and hallucinated an erroneous restriction (quoted verbatim from the notebook output): *"Under the Global Travel, Expense, and Procurement Policy (2026), travelers cannot expense laundry and dry cleaning for trips longer than 30 days."* The Cross-Encoder promoted Section 3.2 to **Rank #1** (+2.4859), and the re-ranked model answered correctly: *"For trips shorter than 5 days, travelers cannot expense laundry and dry cleaning."*
+  * In **TEST_04** (*"Are flight cancellation insurance and seat selection fees reimbursable?"*), dense retrieval placed Section 2.5 at #1 and buried Section 2.3 at **Rank #8** (0.3413). The Cross-Encoder promoted Section 2.3 to **Rank #2** with a score of -1.6741.
     * *Answer 1 (Baseline):* *"No, flight cancellation insurance and seat selection fees are not reimbursable under this policy."*
     * *Answer 2 (Re-Ranked):* *"No, flight cancellation insurance and seat selection fees are not reimbursable under this policy."*
-    * *Nuance:* The Cross-Encoder score for Section 2.3 is negative (-1.6741). It reached Rank #2 only because other candidate chunks scored even lower (between -5 and -8). Furthermore, the query matches Section 2.3 only loosely: Section 2.3 covers checked baggage allowances rather than explicit cancellation insurance. Because neither retrieval pipeline surfaced a chunk that affirmatively authorizes these fees, the generator in both pipelines produced identical negative responses.
+    * *Nuance:* The Cross-Encoder score for Section 2.3 is negative (-1.6741). It reached Rank #2 only because other candidate chunks scored even lower (between -5 and -8). Section 2.3 covers checked baggage allowances rather than explicit cancellation insurance. Because neither retrieval pipeline surfaced a chunk that affirmatively authorizes these fees, the generator in both pipelines produced identical negative responses. This highlights an honest boundary: when the underlying corpus lacks an authorizing clause, re-ranking scores remain negative and the answer is unaffected.
 * **Control Cases (TEST_05 & TEST_06):** In both queries, target sections remained stably at Rank #2 and Rank #1 across both pipelines, confirming that the Cross-Encoder does not destabilize unambiguous queries.
 
 ---
 
 ### 3. Latency Profiling Discussion
 On our local CPU benchmark (averaged over 10 warmed iterations):
-* **Pipeline 1 (Dense Baseline):** $\\approx 10.5\\text{ ms}$ (Query encoding roughly 9.8 ms + cosine dot products roughly 0.7 ms).
-* **Stage 2 (Cross-Encoder 10 Pairs):** $\\approx 135.7\\text{ ms}$ (10 joint forward passes on CPU, $\\approx 13.6\\text{ ms}$ per candidate pair).
-* **Pipeline 2 Total:** $\\approx 146.2\\text{ ms}$ (a P2/P1 overhead ratio of $\\approx 14.0\\times$).
+* **Pipeline 1 (Dense Baseline):** $\approx 10.48\text{ ms}$ (Query encoding roughly 9.8 ms + cosine dot products roughly 0.7 ms).
+* **Stage 2 (Cross-Encoder 10 Pairs):** $\approx 135.66\text{ ms}$ (10 joint forward passes on CPU, $\approx 13.6\text{ ms}$ per candidate pair).
+* **Pipeline 2 Total:** $\approx 146.15\text{ ms}$ (an overhead ratio of $13.95\times$).
 
-*Interactive Feasibility:* A total retrieval time of $\\sim 146\\text{ ms}$ is well within the 200 ms rule of thumb for interactive user search. On a dedicated GPU server, batched Cross-Encoder inference is projected to drop to an estimated 15--25 ms total, bringing total retrieval under 30 ms.
+*Interactive Feasibility:* A total retrieval time of $\sim 146\text{ ms}$ is well within the 200 ms rule of thumb for interactive user search. On a dedicated GPU server, batched Cross-Encoder inference is projected to drop to an estimated 15--25 ms total, bringing total retrieval under 30 ms.
 
 ---
 
 ### 4. Scaling Question: Why Not Run a Cross-Encoder Over the Whole Collection?
 If Cross-Encoders are noticeably more accurate, why not evaluate every chunk in the collection using a Cross-Encoder from the outset?
 
-1. **Quadratic Complexity & Compute Cost:** A Cross-Encoder must run full self-attention across the concatenated sequence length $L = |q| + |c|$ with $\mathcal{O}(L^2)$ complexity. Scoring an entire corpus of $N = 1,000,000$ chunks requires $N$ complete forward passes. On CPU ($13.6\text{ ms}$ per pair), one query would take $\approx 3.8\text{ hours}$. Even on GPU at an estimated $2.0\text{ ms}$ per pair, a full linear scan would take over 33 minutes per query. Under interactive user traffic, this is completely infeasible.
-
-| Corpus Scope | Document Chunks ($N$) | Pure Cross-Encoder (CPU) | Two-Stage Funnel ($K=10$) | Speedup Factor |
-| :--- | :---: | :---: | :---: | :---: |
-| Single Policy (Current) | 30 | 406.9 ms | 146.2 ms | **2.8x** |
-| Department Policy Hub | 500 | 6.78 sec | 146.3 ms | **46.3x** |
-| Enterprise Knowledge Base | 10,000 | 2.26 min | 146.8 ms | **923.7x** |
-| Web-Scale Corpus | 1,000,000 | 3.78 hours | 148.5 ms | **91,582x** |
-
+1. **Quadratic Complexity & Compute Cost:** A Cross-Encoder must run full self-attention across the concatenated sequence length $L = |q| + |c|$ with $\mathcal{O}(L^2)$ complexity. Scoring an entire corpus of $N = 1,000,000$ chunks requires $N$ complete forward passes. On CPU ($13.6\text{ ms}$ per pair), one query would take $\approx 3.8\text{ hours}$. Even on GPU at an estimated $2.0\text{ ms}$ per pair, a full linear scan would take over 33 minutes per query. Under interactive user traffic, exhaustive Cross-Encoder scoring is completely impractical.
 2. **Impossibility of Offline Indexing:** In a Bi-Encoder, chunk vectors $\vec{v}_i$ are static and independent of future queries, so they can be indexed into sub-linear Approximate Nearest Neighbor graph structures (like HNSW in FAISS). Because a Cross-Encoder requires both query and chunk tokens simultaneously, no precomputed index can ever be built, forcing an exhaustive $\mathcal{O}(N)$ scan over every passage.
-3. **The Two-Stage Architectural Necessity:** The two-stage funnel combines the strengths of both models: Stage 1 prunes 99.999% of the collection ($1,000,000 \rightarrow 10$) in milliseconds, allowing Stage 2 to spend compute only on the top 10 candidate chunks.
-
----
-
-### 5. Architectural Ablation: Candidate Pool Depth ($K \in \{5, 10, 20, 50\}$)
-An important hyperparameter in two-stage retrieval is candidate pool depth $K$ passed from the Bi-Encoder to the Cross-Encoder:
-
-| Pool Depth ($K$) | Target In-Pool Recall | Stage 2 Overhead (ms) | Total Retrieval Latency (ms) | Pareto Status |
-| :---: | :---: | :---: | :---: | :--- |
-| $K = 5$ | 0.833 (5/6 queries) | 67.8 ms | 78.3 ms | Sub-optimal (misses Test 4 at Rank #8) |
-| **$K = 10$** | **1.000 (6/6 queries)** | **135.7 ms** | **146.2 ms** | **Pareto Optimal Operating Point** |
-| $K = 20$ | 1.000 (6/6 queries) | 271.3 ms | 281.8 ms | Diminishing returns; exceeds 200 ms budget |
-| $K = 50$ | 1.000 (6/6 queries) | 678.3 ms | 688.8 ms | High latency overhead; no recall gain |
-
-Expanding $K$ from 5 to 10 captures the buried clause in TEST_04 (which sat at Rank #8), elevating pool recall to 100%. However, expanding further to $K = 20$ or $K = 50$ yields zero additional recall gain while causing Cross-Encoder runtime to scale linearly ($\approx 13.6$ ms per candidate pair), breaching the 200 ms interactive budget. Thus, $K = 10$ represents the empirical Pareto-optimal configuration.
+3. **The Two-Stage Architectural Necessity:** The two-stage funnel combines the strengths of both models: Stage 1 prunes 99.999% of the collection in milliseconds, allowing Stage 2 to spend compute only on the top 10 candidate chunks.
 """))
 
     nb.cells = cells
