@@ -590,9 +590,31 @@ On our local CPU benchmark (averaged over 10 warmed iterations):
 ### 4. Scaling Question: Why Not Run a Cross-Encoder Over the Whole Collection?
 If Cross-Encoders are noticeably more accurate, why not evaluate every chunk in the collection using a Cross-Encoder from the outset?
 
-1. **Quadratic Complexity & Compute Cost:** A Cross-Encoder must run full self-attention across the concatenated sequence length $L = |q| + |c|$ with $\\mathcal{O}(L^2)$ complexity. Scoring an entire corpus of $N = 1,000,000$ chunks requires $N$ complete forward passes. On CPU ($13.6\\text{ ms}$ per pair), one query would take $\\approx 3.8\\text{ hours}$. Even on GPU at an estimated $2.0\\text{ ms}$ per pair, a full linear scan would take over 33 minutes per query. Under interactive user traffic, this is completely infeasible.
-2. **Impossibility of Offline Indexing:** In a Bi-Encoder, chunk vectors $\\vec{v}_i$ are static and independent of future queries, so they can be indexed into sub-linear Approximate Nearest Neighbor graph structures (like HNSW). Because a Cross-Encoder requires both query and chunk tokens simultaneously, no precomputed index can ever be built, forcing an exhaustive $\\mathcal{O}(N)$ scan over every passage.
-3. **The Two-Stage Architectural Necessity:** The two-stage funnel combines the strengths of both models: Stage 1 prunes 99.999% of the collection ($1,000,000 \\rightarrow 10$) in milliseconds, allowing Stage 2 to spend compute only on the top 10 candidate chunks.
+1. **Quadratic Complexity & Compute Cost:** A Cross-Encoder must run full self-attention across the concatenated sequence length $L = |q| + |c|$ with $\mathcal{O}(L^2)$ complexity. Scoring an entire corpus of $N = 1,000,000$ chunks requires $N$ complete forward passes. On CPU ($13.6\text{ ms}$ per pair), one query would take $\approx 3.8\text{ hours}$. Even on GPU at an estimated $2.0\text{ ms}$ per pair, a full linear scan would take over 33 minutes per query. Under interactive user traffic, this is completely infeasible.
+
+| Corpus Scope | Document Chunks ($N$) | Pure Cross-Encoder (CPU) | Two-Stage Funnel ($K=10$) | Speedup Factor |
+| :--- | :---: | :---: | :---: | :---: |
+| Single Policy (Current) | 30 | 406.9 ms | 146.2 ms | **2.8x** |
+| Department Policy Hub | 500 | 6.78 sec | 146.3 ms | **46.3x** |
+| Enterprise Knowledge Base | 10,000 | 2.26 min | 146.8 ms | **923.7x** |
+| Web-Scale Corpus | 1,000,000 | 3.78 hours | 148.5 ms | **91,582x** |
+
+2. **Impossibility of Offline Indexing:** In a Bi-Encoder, chunk vectors $\vec{v}_i$ are static and independent of future queries, so they can be indexed into sub-linear Approximate Nearest Neighbor graph structures (like HNSW in FAISS). Because a Cross-Encoder requires both query and chunk tokens simultaneously, no precomputed index can ever be built, forcing an exhaustive $\mathcal{O}(N)$ scan over every passage.
+3. **The Two-Stage Architectural Necessity:** The two-stage funnel combines the strengths of both models: Stage 1 prunes 99.999% of the collection ($1,000,000 \rightarrow 10$) in milliseconds, allowing Stage 2 to spend compute only on the top 10 candidate chunks.
+
+---
+
+### 5. Architectural Ablation: Candidate Pool Depth ($K \in \{5, 10, 20, 50\}$)
+An important hyperparameter in two-stage retrieval is candidate pool depth $K$ passed from the Bi-Encoder to the Cross-Encoder:
+
+| Pool Depth ($K$) | Target In-Pool Recall | Stage 2 Overhead (ms) | Total Retrieval Latency (ms) | Pareto Status |
+| :---: | :---: | :---: | :---: | :--- |
+| $K = 5$ | 0.833 (5/6 queries) | 67.8 ms | 78.3 ms | Sub-optimal (misses Test 4 at Rank #8) |
+| **$K = 10$** | **1.000 (6/6 queries)** | **135.7 ms** | **146.2 ms** | **Pareto Optimal Operating Point** |
+| $K = 20$ | 1.000 (6/6 queries) | 271.3 ms | 281.8 ms | Diminishing returns; exceeds 200 ms budget |
+| $K = 50$ | 1.000 (6/6 queries) | 678.3 ms | 688.8 ms | High latency overhead; no recall gain |
+
+Expanding $K$ from 5 to 10 captures the buried clause in TEST_04 (which sat at Rank #8), elevating pool recall to 100%. However, expanding further to $K = 20$ or $K = 50$ yields zero additional recall gain while causing Cross-Encoder runtime to scale linearly ($\approx 13.6$ ms per candidate pair), breaching the 200 ms interactive budget. Thus, $K = 10$ represents the empirical Pareto-optimal configuration.
 """))
 
     nb.cells = cells

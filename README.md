@@ -14,7 +14,7 @@ This repository contains the complete implementation, stress-testing evaluation,
 | Deliverable | File Path | Description |
 | :--- | :--- | :--- |
 | **Primary Code Submission** | [`rag_baseline_vs_reranking.ipynb`](./rag_baseline_vs_reranking.ipynb) | Single fully-executed Jupyter Notebook with precomputed cell outputs, tables, and visualization charts. |
-| **Technical Report (PDF)** | [`REPORT.pdf`](./REPORT.pdf) | Submission-ready 3-page PDF technical report compiled via LaTeX (`report.pdf` is identical). |
+| **Technical Report (PDF)** | [`REPORT.pdf`](./REPORT.pdf) | Submission-ready 4-page PDF technical report compiled via LaTeX (`report.pdf` is identical). |
 | **Technical Report (Markdown)** | [`REPORT.md`](./REPORT.md) | Comprehensive technical report addressing all 4 required sections with empirical tables and scaling proofs. |
 | **Evaluation Dataset** | [`corporate_travel_and_expense_policy.pdf`](./corporate_travel_and_expense_policy.pdf) | Complex 4-page enterprise policy PDF document (30 clauses) with rules, exceptions, and negations. |
 | **Benchmark Script** | [`run_experiments.py`](./run_experiments.py) | Standalone command-line Python runner for headless benchmarking and latency profiling. |
